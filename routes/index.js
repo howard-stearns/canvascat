@@ -8,6 +8,8 @@ var store = require('ki1r0y.fs-store');
 var multer  = require('multer');
 var express = require('express');
 var router = express.Router();
+var passport = require('passport');
+var BasicStrategy = require('passport-http').BasicStrategy;
 
 // join and resolve are method in the path module, which build up pathnames in the file system.
 // join simply concatenates the arguments together with the file system separator in between.
@@ -120,9 +122,30 @@ function handlePictureUpload(file, data, writerFunction) {
     });
 }
 
-
 // express has built-in machinery to server static files from the specified directory.
 router.use('/media', express.static(media));
+
+router.use(passport.initialize());
+passport.use(new BasicStrategy(function (username, password, done) {
+    // When passport does not find a serialized user in the session cookie (if configured to use sessions),
+    // it attempts to obtain the credentials based on the strategy.
+    // If there are credentials, it invokes this callback to produce an authenticated user from the given credentials.
+    // Improper credentials should a falsey user, not an error (which would indicate a machinery failure).
+    // (Confusingly, the passport documentation calls this verifying, but by that they mean verifying the credentials
+    // to produce an authenticated user. It does not verify that the user is authorized for the request.)
+    setImmediate(function () {
+        // For now, we have a golden key password that allows entry as any username!
+        done(null, (password === 'golden key') && {username: username, basic: true});
+    });
+}));
+// This route is is used in the route to determine whether the given authenticated user is authorized for the next step in the route.
+var authenticate = passport.authenticate('basic', {session: false});
+function authorizeForRequest(req, res, next) {
+    if (req.user.username === req.params.username) { return next(); }
+    var error = new Error("Unauthorized " + req.user.username + " for " + req.params.username);
+    error.status = 401;
+    return next(error);
+}
 
 // As we add routes, below, the router arranges for parameters expressed in the routes (e.g., :idtag),
 // and filled in in the actual URL of the request, to be added to the 'params' property of the request object.
@@ -141,14 +164,14 @@ router.get('/art/:username/:compositionNametag.html', function (req, res, next) 
     });
 });
 
-router.get('/update-art/:username/:compositionNametag.html', function (req, res, next) {
+router.get('/update-art/:username/:compositionNametag.html', authenticate, authorizeForRequest, function (req, res, next) {
     getMemberComposition(req.params.username, req.params.compositionNametag, function (error, data) {
         if (error) { return next(error); }
         res.render('updateComposition', data);
     });
 });
 
-router.post('/update-art/:username/:compositionNametag.html', singleFileUpload, function (req, res, next) {
+router.post('/update-art/:username/:compositionNametag.html', authenticate, authorizeForRequest, singleFileUpload, function (req, res, next) {
     var docName = compositionIdtag2Docname(req.body.idtag);
     function transformer(oldData, writerFunction) {
         if (!oldData) { return writerFunction(unknown(req.params.username + " " + req.params.compositionNametag)); }
@@ -163,13 +186,13 @@ router.post('/update-art/:username/:compositionNametag.html', singleFileUpload, 
     });
 });
 
-router.get('/update-member/:username/profile.html', function (req, res, next) {
+router.get('/update-member/:username/profile.html', authenticate, authorizeForRequest, function (req, res, next) {
     getMember(req.params.username, function (error, data) {
         if (error) { return next(error); }
         res.render('updateMember', data);
     });
 });
-router.post('/update-member/:username/profile.html', singleFileUpload, function (req, res, next) {
+router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, function (req, res, next) {
     var docName = memberIdtag2Docname(req.body.idtag);
     function transformer(oldData, writerFunction) {
         if (!oldData) { return writerFunction(unknown(req.params.username)); }
