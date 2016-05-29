@@ -1,0 +1,13 @@
+extends layout
+
+block content
+  form(method="post", enctype="multipart/form-data")
+    input(type="text", name="title", value=title)
+    input(type="text", name="description", value=description)
+    input(type="text", name="website", value=website)
+    input(type="text", name="email", value=email)
+    input(type="text", name="username", value=username)
+    input(type="file", name="picture")
+    input(type="hidden", name="idtag", value=idtag)
+    input(type="submit")
+    

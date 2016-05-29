@@ -1,0 +1,13 @@
+extends item
+
+block content
+  h1= title
+  h3
+    a(href=artist.url)= artist.title
+  img(src=pictureUrl)
+  p= description
+  p= medium
+  p= price
+  p= dimensions
+  p= category
+  a(href=updateUrl) update

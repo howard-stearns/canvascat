@@ -1,0 +1,17 @@
+extends layout
+
+block content
+  form(method="post", enctype="multipart/form-data")
+    input(type="text", name="title", value=title)
+    input(type="text", name="description", value=description)
+    input(type="text", name="price", value=price)
+    input(type="text", name="dimensions", value=dimensions)
+    input(type="text", name="medium", value=medium)
+    input(type="text", name="category", value=category.join(' '))
+    input(type="file", name="picture")
+    input(type="hidden", name="idtag", value=idtag)
+    input(type="submit")
+  h3
+    a(href=artist.url)= artist.title
+  img(src=pictureUrl)
+    
