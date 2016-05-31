@@ -2,12 +2,15 @@ extends layout
 
 block content
   form(method="post", enctype="multipart/form-data")
-    input(type="text", name="title", value=title)
-    input(type="text", name="description", value=description)
-    input(type="text", name="website", value=website)
-    input(type="text", name="email", value=email)
-    input(type="text", name="username", value=username)
-    input(type="file", name="picture")
-    input(type="hidden", name="idtag", value=idtag)
+    if error
+      p= error
+    input(type="text", required, name="title", value=title, placeholder="your professional name as an artist", autocomplete="off", pattern=".*\\w+.*")
+    input(type="text", name="description", value=description, placeholder="optional description or statement about your work generally")
+    input(type="text", name="website", value=website, placeholder="optional url that will appear as a link")
+    input(type="email", required, name="email", value=email, placeholder="email to be confirmed", pattern=".*\\w+@\\w+\\.\\w+.*")
+    input(type="text", required, name="username", value=username, placeholder="appears in URLs, but not otherwise displayed")
+    input(type="password", required=newMember, name="password")
+    input(type="password", required=newMember, name="repeatPassword")
+    input(type="file", name="picture", placeholder="people respond better to a nice profile picture")
     input(type="submit")
     
