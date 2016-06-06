@@ -16,12 +16,20 @@ var router = express.Router();
 var passport = require('passport');
 var BasicStrategy = require('passport-http').BasicStrategy;
 var async = require('async');
+require('../polyfills');
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// UTILITIES
 /////////////////////////////////////////////////////////////////////////////////////////////
-var DEFAULT_PARALLEL_LIMT = 50;
+var DEFAULT_PARALLEL_LIMIT = 50;
 function ignore() { } // Does nothing, and used to document parameters that are deliberately not used.
+
+function propertyPush(object, property, newElement, optionalCheck) { // object[property].push(newElement) even if undefined
+    var array = object[property] || [];
+    if (optionalCheck && newElement && array.includes(newElement)) { return; }
+    array.push(newElement);
+    object[property] = array;
+}
 
 function secret(key) {   // Grab a secret from the shell environment, or report that it wasn't set.
     if (process.env[key]) { return process.env[key]; }
@@ -40,23 +48,27 @@ var members = path.join(db, 'members');
 var memberNametags = path.join(db, 'memberNametags');
 var compositions = path.join(db, 'compositions');
 var media = path.join(db, 'media');
-function memberCollectionname(idtag) {
-    return path.join(members, idtag);
-}
+function docname(collection, identifier) { return path.join(collection, identifier); }
+function memberCollectionname(idtag) { return docname(members, idtag); }
 function memberCompositionsCollectionname(idtag) {
     return path.join(members, idtag, 'compositionNametags');
 }
 function memberIdtag2Docname(idtag) {
-    return path.join(memberCollectionname(idtag), 'profile.json');
+    return docname(memberCollectionname(idtag), 'profile.json');
 }
 function compositionNametag2Docname(userIdtag, nametag) {
-    return path.join(memberCompositionsCollectionname(userIdtag), nametag);
+    return docname(memberCompositionsCollectionname(userIdtag), nametag);
 }
 function memberNametag2Docname(nametag) {
-    return path.join(memberNametags, nametag);
+    return docname(memberNametags, nametag);
 }
 function compositionIdtag2Docname(idtag) {
-    return path.join(compositions, idtag + '.json');
+    return docname(compositions, idtag + '.json');
+}
+function readablyEncode(nfkdString) { // Encode suitably for a url, as readable as practical.
+    // FIXME strip diacritics in range 0300–036F
+    var string = nfkdString.toLowerCase();
+    return encodeURIComponent(string).replace(/%20/g, '+');
 }
 function mediaUrl(idtag) { // The file extension is already part of the idtag.
     // Even though the results would be the same if we used path.join, here we are returning a
@@ -71,10 +83,11 @@ var upload = multer({dest: path.resolve(__dirname, '..', '..', 'uploads')});
 // errors
 function makeError(message, code) {
     var error = new Error(message);
-    if (code) { error.code = code; }
+    if (code) { error.status = code; }
     return error;
 }
 function forbidden(message) { return makeError(message, 403); }
+function forbiddenComposition(nametag) { return forbidden(nametag + " is not one of your compositions."); }
 function unknown(nametag) { return makeError('Unknown ' + nametag, 404); }
 function conflict(message) { return makeError(message, 409); }
 function tooMany(message) { return makeError(message, 429); }
@@ -90,47 +103,75 @@ function ensureMemberCollections(idtag, cb) {
         store.ensureCollection(memberCompositionsCollectionname(idtag), cb);
     });
 }
+// ensure that collection/nametag points to idtag and call cb(error),
+// where the pre-existence of collection/nametag pointing to a different idtag is an error.
+function ensureUniqueNametag(collection, nametag, idtag, label, cb) {
+    var document = docname(collection, nametag);
+    store.get(document, function (error, existing) {
+        if (existing === idtag) { return cb(); }
+        if (existing) { error = conflict(label + " " + nametag + " is already in use."); }
+        if (error && !store.doesNotExist(error)) { return cb(error); }
+        store.set(document, idtag, cb);
+    });
+}
 
 function resolveUsername(username, cb) { // cb(error, memberIdtag)
     store.get(memberNametag2Docname(username), cb);
 }
+function expandMember(idtag, cb) {
+    store.get(memberIdtag2Docname(idtag), function (error, member) {
+        if (error) { return cb(error); }
+        member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
+        member.url  = '/member/' + member.username + '/profile.html';
+        member.updateUrl = '/update-member/' + member.username + '/profile.html';
+        member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
+        if (!member.firstname && !member.lastname) {
+            var split = member.title.split(' ');
+            member.firstname = split[0];
+            member.lastname = split.slice(1).join(' ');
+        }
+        cb(null, member, idtag);
+    });
+}
 function getMember(username, cb) { // cb(error, memberData, memberIdtag)
     resolveUsername(username, function (error, idtag) {
         if (error) { return cb(error); }
-        store.get(memberIdtag2Docname(idtag), function (error, member) {
+        expandMember(idtag, cb);
+    });
+}
+function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(error, compositionIdtag)
+    store.get(compositionNametag2Docname(memberIdtag, compositionNametag), cb);
+}
+function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
+    resolveCompositionName(memberIdtag, compositionNametag, function (error, idtag) {
+        if (error) { return cb(error); }
+        store.getWithModificationTime(compositionIdtag2Docname(idtag), function (error, composition, modtime) {
             if (error) { return cb(error); }
-            member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
-            member.url  = '/member/' + member.username + '/profile.html';
-            member.updateUrl = '/update-member/' + member.username + '/profile.html';
-            member.addCompositionUrl = '/update-composition/' + member.username + '/new.html';
-            if (!member.firstname && !member.lastname) {
-                var split = member.title.split(' ');
-                member.firstname = split[0];
-                member.lastname = split.slice(1).join(' ');
+            composition.pictureUrl = mediaUrl(composition.picture);
+            composition.url = '/art/' + member.username + '/' + composition.nametag + '.html';
+            composition.deleteUrl = '/art/' + member.username + '/' + composition.nametag + '/delete.html';
+            composition.updateUrl = '/update-art/' + member.username + '/' + composition.nametag + '.html';
+            composition.addCompositionUrl = member.addCompositionUrl;
+            composition.artist = member;
+            composition.modified = modtime.getTime();
+            if (composition.buyer) {
+                expandMember(composition.buyer, function (error, buyer) {
+                    composition.buyer = buyer;
+                    cb(error, composition, idtag);
+                });
+            } else {
+                cb(null, composition, idtag);
             }
-            cb(null, member, idtag);
         });
     });
 }
-function getMemberComposition(username, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
+function getUsernameComposition(username, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
     getMember(username, function (error, member, memberIdtag) {
         if (error) { return cb(error); }
-        store.get(compositionNametag2Docname(memberIdtag, compositionNametag), function (error, idtag) {
-            if (error) { return cb(error); }
-            store.getWithModificationTime(compositionIdtag2Docname(idtag), function (error, composition, modtime) {
-                if (error) { return cb(error); }
-                composition.pictureUrl = mediaUrl(composition.picture);
-                composition.idtag = idtag;
-                composition.url = '/art/' + member.username + '/' + composition.nametag + '.html';
-                composition.updateUrl = '/update-art/' + member.username + '/' + composition.nametag + '.html';
-                composition.addCompositionUrl = member.addCompositionUrl;
-                composition.artist = member;
-                composition.modified = modtime.getTime();
-                cb(null, composition);
-            });
-        });
+        getMemberComposition(member, memberIdtag, compositionNametag, cb);
     });
 }
+
 function normalize(string) {
     // Normalize the data so that searches match.
     // Decompose combined unicode characters into compatible individual marks, so that we can strip them in searches.
@@ -156,7 +197,7 @@ function handlePictureUpload(file, data, writerFunction) {
     var extension = path.extname(file.originalname).toLowerCase();
     if (extension === '.jpg') { extension = '.jpeg'; }
     file.mimetype = file.mimetype.toLowerCase();
-    if (file.mimetype !== 'image/' + extension.slice(1)) { // fixme jpg vs jpeg, case
+    if (file.mimetype !== 'image/' + extension.slice(1)) {
         return writerFunction(badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'));
     }
     fs.readFile(file.path, function (error, buffer) {
@@ -275,7 +316,7 @@ function updateMember(req, res, next) {
         if (error) {
             data.error = error.message;
             data.newMember = !oldUsername;
-            if (error.code) { res.statusCode = error.code; }
+            if (error.status) { res.statusCode = error.status; }
             return res.render('updateMember', data);
         }
         // FIXME: This is a lot of unnecessary round trips and lookups. For now, it's a good test that we got the parsing right.
@@ -291,6 +332,7 @@ function updateMember(req, res, next) {
     }
     // Merge in the data. Tests below depend on the data being normalized (e.g., empty space trimmed out).
     copyStringProperties(['title', 'description', 'website', 'email', 'username'], req.body, data);
+    data.username = readablyEncode(data.username);
     var password = normalize(req.body.password);
     if (password !== normalize(req.body.repeatPassword)) { return finish(badRequest("Password does not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
@@ -301,24 +343,16 @@ function updateMember(req, res, next) {
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
     if (oldUsername) {
-        if (!data.oldUsernames) { data.oldUsernames = []; }
-        data.oldUsernames.push(oldUsername); // oldUsername can appear many times. Counts against "too many username changes"
+        propertyPush(data, 'oldUsernames', oldUsername); // oldUsername can appear many times. Counts against "too many username changes"
         if (((Date.now() - data.created) / (data.oldUsernames.length + 1)) < MINIMUM_LIFETIME_MILLISECONDS_PER_USERNAME_CHANGE) {
             return finish(tooMany("Too many username changes."));
         }
     }
-    var newUserDocname = memberNametag2Docname(data.username);
-    store.get(newUserDocname, function (error, existing) {
-        if (error && !store.doesNotExist(error)) { return finish(error); }
-        if (existing && (existing !== idtag)) {
-            return finish(conflict("Username " + data.username + " is already in use."));
-        }
-        store.set(newUserDocname, idtag, function (error) {
-            if (error) { return finish(error); }
-            if (oldUsername) { return update(); }
-            data.created = Date.now();
-            ensureMemberCollections(idtag, update);
-        });
+    ensureUniqueNametag(members, data.username, idtag, 'Username', function (error) {
+        if (error) { return finish(error); }
+        if (oldUsername) { return update(); }
+        data.created = Date.now();
+        ensureMemberCollections(idtag, update);
     });
 }
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
@@ -331,39 +365,125 @@ router.post('/update-member/:username/profile.html', authenticate, authorizeForR
 //////////////////
 
 router.get('/art/:username/:compositionNametag.html', function (req, res, next) {
-    getMemberComposition(req.params.username, req.params.compositionNametag, function (error, data) {
+    getUsernameComposition(req.params.username, req.params.compositionNametag, function (error, data) {
         if (error) { return next(error); }
         res.render('composition', data);
     });
 });
 
+// This is a little different from member, in that compositions are always owned by someone (even new compositions), and
+// we have to check that old composition changes are to a composition belonging to that user.
 router.get('/update-art/:username/:compositionNametag.html', authenticate, authorizeForRequest, function (req, res, next) {
+    var member = req.user;
     if (req.params.compositionNametag === 'new') {
-        return res.render('updateComposition', {newComposition: true}); // Nothing to look up, but render same view as below.
+        return res.render('updateComposition', {
+            newComposition: true,
+            category: [],
+            artist: member
+        }); // Nothing to look up, but render same view as below.
     }
-    getMemberComposition(req.params.username, req.params.compositionNametag, function (error, data) {
+    var nametag = req.params.compositionNametag;
+    getMemberComposition(member, member.idtag, nametag, function (error, data, idtag) {
         if (error) { return next(error); }
+        if (!member.artistCompositions.includes(idtag)) {
+            return next(forbiddenComposition(nametag));
+        }
         res.render('updateComposition', data);
     });
 });
 
 router.post('/update-art/:username/:compositionNametag.html', authenticate, authorizeForRequest, singleFileUpload, function (req, res, next) {
-    var idtag = req.body.idtag || uuid.v4();
-    var docName = compositionIdtag2Docname(idtag);
-    function transformer(oldData, writerFunction) {
-        if (!oldData && (req.body.compositionNametag === 'new')) {
-            return writerFunction(unknown(req.params.username + " " + req.params.compositionNametag));
+    var nametag = req.params.compositionNametag,
+        newComposition = (nametag === 'new'),
+        member = req.user;
+    function update(idtag) {
+        var docName = compositionIdtag2Docname(idtag);
+        function transformer(data, writerFunction) {
+            if (!data && !newComposition) {
+                return writerFunction(unknown(member.username + " " + nametag));
+            }
+            var oldNametag = data.nametag;
+            copyStringProperties(['title', 'description', 'price', 'dimensions', 'medium'], req.body, data);
+            nametag = data.nametag = readablyEncode(data.title);
+            if (req.body.category) { data.category = req.body.category.split(' '); } // FIXME harden this
+            if (newComposition) { data.created = Date.now(); }
+            if (oldNametag === data.nametag) {
+                return handlePictureUpload(req.file, data, writerFunction);
+            }
+            ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, 'Composition title', function (error) {
+                if (error) { return writerFunction(error); }
+                propertyPush(data, 'oldNametags', oldNametag, true); // keep track of old so that we can clean up when deleting composition
+                handlePictureUpload(req.file, data, writerFunction);
+            });
         }
-        copyStringProperties(['title', 'description', 'price', 'dimensions', 'medium'], req.body, oldData);
-        if (req.body.category) { oldData.category = req.body.category.split(' '); } // FIXME harden this
-        handlePictureUpload(req.file, oldData, writerFunction); // oldData has now been modified
+        store.update(docName, {}, transformer, function (error) {
+            // FIXME: display error and leave user on form
+            if (error) { return next(error); }
+            // FIXME: This is a lot of unnecessary round trips and lookups. For now, it's a good test that we got the parsing right.
+            var url = '/art/' + member.username + '/' + nametag + '.html';
+            res.redirect(url);
+        });
     }
-    store.update(docName, undefined, transformer, function (error) {
-        if (error) { return next(error); }
-        // FIXME: This is a lot of unnecessary round trips and lookups. For now, it's a good test that we got the parsing right.
-        res.redirect('/art/' + req.params.username + '/' + req.params.compositionNametag + '.html');
-    });
+    if (newComposition) {
+        var idtag = uuid.v4();
+        function addComposition(oldData, writerFunction) {
+            propertyPush(oldData, 'artistCompositions', idtag);
+            writerFunction(null, oldData);
+        }
+        store.update(memberIdtag2Docname(member.idtag), undefined, addComposition, function (error) {
+            if (error) { return next(error); }
+            update(idtag); // It's possible that this will fail, leaving a dangling pointer in member compositions. Fine...
+        });
+    } else {
+        resolveCompositionName(member.idtag, nametag, function (error, idtag) {
+            // If it doesn't exist, it cannot be one of ours.
+            if (error) { return next(store.doesNotExist(error) ? forbiddenComposition(nametag) : error); }
+            update(idtag);
+        });
+    }
 });
+
+function deleteComposition(req, res, next) { // must already be authorized
+    // Remove composition and its nametags from store, and remove composition idtag from member.
+    // For now, we forbid deleting a composition that has already been sold.
+    var member = req.user;
+    var nametag = req.params.compositionNametag;
+    // We don't really need getMemberComposition expansion of buyer, but that's not much cost for simplicity.
+    getMemberComposition(member, member.idtag, nametag, function (error, data, idtag) {
+        if (store.doesNotExist(error)) {
+            return next(forbiddenComposition(nametag));
+        }
+        if (error) {
+            return next(error);
+        }
+        if (data.buyer) {
+            return next(badRequest("Cannot delete a composition that has already been sold."));
+        }
+        store.destroy(compositionIdtag2Docname(idtag), function (compositionError) {
+            async.eachLimit((data.nametags || []).concat(nametag), DEFAULT_PARALLEL_LIMIT, function (nametag, cb) {
+                store.destroy(memberNametag2Docname(nametag), cb);
+            }, function (nametagsError) {
+                function removeComposition(oldData, writerFunction) {
+                    oldData.artistCompositions.splice(oldData.artistCompositions.indexOf(idtag), 1);
+                    writerFunction(null);
+                }
+                store.destroyCollection(memberCompositionsCollectionname(idtag), function (collectionError) {
+                    store.update(memberIdtag2Docname(member.idtag), {}, removeComposition, function (artistError) {
+                        error = compositionError || nametagsError || collectionError || artistError;
+                        if (error) {
+                            next(error);
+                        } else {
+                            res.redirect(member.url);
+                        }
+                    });
+                });
+            });
+        });
+    });
+}
+router.delete('/art/:username/:compositionNametag.html', authenticate, authorizeForRequest, deleteComposition); // REST style
+router.post('/art/:username/:compositionNametag/delete.html', authenticate, authorizeForRequest, deleteComposition); // So we can have a delete button
+
 
 //////////////////
 // OTHER PAGES

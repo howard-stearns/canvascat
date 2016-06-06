@@ -6,11 +6,12 @@ block content
     input(type="text", name="description", value=description, placeholder="artist statement or description")
     input(type="text", required, name="price", value=price, placeholder="price in US dollars")
     input(type="text", required, name="dimensions", value=dimensions, placeholder="width x height x depth, in inches.")
-    input(type="text", name="medium", value=medium, placeholder="oil, acrylic, etc.")
-    input(type="text", name="category", value=category.join(' '), placeholder="list of portrait, abstract, nude, etc.")
+    input(type="text", required, name="medium", value=medium, placeholder="oil, acrylic, etc.")
+    input(type="text", name="category", value=(category || []).join(' '), placeholder="list of portrait, abstract, nude, etc.")
     input(type="file", required=newComposition, name="picture", placeholder="Upload a good clear photograph.")
-    input(type="hidden", name="idtag", value=idtag)
     input(type="submit")
+  form(method="post", action=deleteUrl)
+    input(type="submit", name="delete")
   h3
     a(href=artist.url)= artist.title
   img(src=pictureUrl)
