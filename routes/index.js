@@ -295,7 +295,7 @@ router.get('/member/:username/profile.html', function (req, res, next) {
 });
 router.get('/update-member/new/profile.html', rateLimit, function (req, res, next) {
     ignore(req, next);
-    res.render('updateMember', {newMember: true});
+    res.render('updateMember', {newMember: true}); // tells template that different fields are requried
 });
 // A route can specify a chain of handlers to be applied, instead of just one.
 router.get('/update-member/:username/profile.html', authenticate, authorizeForRequest, function (req, res, next) {
@@ -307,13 +307,14 @@ var MINIMUM_LIFETIME_MILLISECONDS_PER_USERNAME_CHANGE = 24 * 60 * 60 * 1000;
 // Normalize and merge into existing data, keeping everything consistent and verified (e.g., username nametags in store).
 function updateMember(req, res, next) {
     ignore(next);
-    var data = req.user || {idtag: uuid.v4()};
+    var data = req.user || {idtag: uuid.v4()}; // will accumulate the final answer
+    var newData = req.body;
     var idtag = data.idtag;
     var oldUsername = data.username;
     function finish(error) {
         if (error) {
             data.error = error.message;
-            data.newMember = !oldUsername;
+            data.newMember = !oldUsername; // indicates which fields are required
             if (error.status) { res.statusCode = error.status; }
             return res.render('updateMember', data);
         }
@@ -329,14 +330,16 @@ function updateMember(req, res, next) {
         });
     }
     // Merge in the data. Tests below depend on the data being normalized (e.g., empty space trimmed out).
-    copyStringProperties(['title', 'description', 'website', 'email', 'username'], req.body, data);
+    copyStringProperties(['title', 'description', 'website', 'email', 'username'], newData, data);
     data.username = readablyEncode(data.username);
-    var password = req.body.password;
-    if (password !== req.body.repeatPassword) { return finish(badRequest("Password does not match.")); }
+    var password = newData.password;
+    if (password !== newData.repeatPassword) { return finish(badRequest("Passwords do not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
-    if (!data.username || !data.title || !data.email || !data.passwordHash) { // Pun: catching both '' and undefined.
+    var missing; // Pun: we catch both '' and undefined.
+    ['passwordHash', 'email', 'username', 'title'].forEach(function (name) { if (!data[name]) { missing = name; } });
+    if (missing) {
         // Won't happen through our form, but someone could send bad data directly.
-        return finish(badRequest("Missing required data: " + JSON.stringify(req.body)));
+        return finish(badRequest("Missing required data: " + missing));
     }
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
@@ -353,6 +356,7 @@ function updateMember(req, res, next) {
         ensureMemberCollections(idtag, update);
     });
 }
+// Two different routes because the authentication is different for a new profile vs changing an existing profile.
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
 // We do not currently have a destroy member operation. There may be transactions involving the member.
@@ -408,7 +412,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
             if (oldNametag === data.nametag) {
                 return handlePictureUpload(req.file, data, writerFunction);
             }
-            ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, 'Composition title', function (error) {
+            ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, 'Composition nametag', function (error) {
                 if (error) { return writerFunction(error); }
                 propertyPush(data, 'oldNametags', oldNametag, true); // keep track of old so that we can clean up when deleting composition
                 handlePictureUpload(req.file, data, writerFunction);
