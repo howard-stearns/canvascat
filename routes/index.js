@@ -66,9 +66,8 @@ function compositionIdtag2Docname(idtag) {
     return docname(compositions, idtag + '.json');
 }
 function readablyEncode(nfkdString) { // Encode suitably for a url, as readable as practical.
-    // FIXME strip diacritics in range 0300–036F
     var string = nfkdString.toLowerCase();
-    return encodeURIComponent(string).replace(/%20/g, '+');
+    return encodeURIComponent(string).replace(/%../g, '+');
 }
 function mediaUrl(idtag) { // The file extension is already part of the idtag.
     // Even though the results would be the same if we used path.join, here we are returning a
@@ -333,8 +332,8 @@ function updateMember(req, res, next) {
     // Merge in the data. Tests below depend on the data being normalized (e.g., empty space trimmed out).
     copyStringProperties(['title', 'description', 'website', 'email', 'username'], req.body, data);
     data.username = readablyEncode(data.username);
-    var password = normalize(req.body.password);
-    if (password !== normalize(req.body.repeatPassword)) { return finish(badRequest("Password does not match.")); }
+    var password = req.body.password;
+    if (password !== req.body.repeatPassword) { return finish(badRequest("Password does not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
     if (!data.username || !data.title || !data.email || !data.passwordHash) { // Pun: catching both '' and undefined.
         // Won't happen through our form, but someone could send bad data directly.
