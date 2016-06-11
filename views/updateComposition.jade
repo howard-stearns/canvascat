@@ -10,8 +10,6 @@ block content
     input(type="text", name="category", value=(category || []).join(' '), placeholder="list of portrait, abstract, nude, etc.")
     input(type="file", required=newComposition, name="picture", placeholder="Upload a good clear photograph.")
     input(type="submit")
-  form(method="post", action=deleteUrl)
-    input(type="submit", name="delete")
   h3
     a(href=artist.url)= artist.title
   img(src=pictureUrl)

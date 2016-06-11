@@ -148,7 +148,6 @@ function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // 
             if (error) { return cb(error); }
             composition.pictureUrl = mediaUrl(composition.picture);
             composition.url = '/art/' + member.username + '/' + composition.nametag + '.html';
-            composition.deleteUrl = '/art/' + member.username + '/' + composition.nametag + '/delete.html';
             composition.updateUrl = '/update-art/' + member.username + '/' + composition.nametag + '.html';
             composition.addCompositionUrl = member.addCompositionUrl;
             composition.artist = member;
@@ -357,7 +356,7 @@ function updateMember(req, res, next) {
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
 // We do not currently have a destroy member operation. There may be transactions involving the member.
-// However, one can delete all one's UNSOLD compositions, and/or update your data to something not very meaningful.
+// However, one can unlist all your compositions, and/or update your data to something not very meaningful.
 
 //////////////////
 // COMPOSITIONS
@@ -441,48 +440,6 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
         });
     }
 });
-
-function deleteComposition(req, res, next) { // must already be authorized
-    // Remove composition and its nametags from store, and remove composition idtag from member.
-    // For now, we forbid deleting a composition that has already been sold.
-    var member = req.user;
-    var nametag = req.params.compositionNametag;
-    // We don't really need getMemberComposition expansion of buyer, but that's not much cost for simplicity.
-    getMemberComposition(member, member.idtag, nametag, function (error, data, idtag) {
-        if (store.doesNotExist(error)) {
-            return next(forbiddenComposition(nametag));
-        }
-        if (error) {
-            return next(error);
-        }
-        if (data.buyer) {
-            return next(badRequest("Cannot delete a composition that has already been sold."));
-        }
-        store.destroy(compositionIdtag2Docname(idtag), function (compositionError) {
-            async.eachLimit((data.nametags || []).concat(nametag), DEFAULT_PARALLEL_LIMIT, function (nametag, cb) {
-                store.destroy(memberNametag2Docname(nametag), cb);
-            }, function (nametagsError) {
-                function removeComposition(oldData, writerFunction) {
-                    oldData.artistCompositions.splice(oldData.artistCompositions.indexOf(idtag), 1);
-                    writerFunction(null);
-                }
-                store.destroyCollection(memberCompositionsCollectionname(idtag), function (collectionError) {
-                    store.update(memberIdtag2Docname(member.idtag), {}, removeComposition, function (artistError) {
-                        error = compositionError || nametagsError || collectionError || artistError;
-                        if (error) {
-                            next(error);
-                        } else {
-                            res.redirect(member.url);
-                        }
-                    });
-                });
-            });
-        });
-    });
-}
-router.delete('/art/:username/:compositionNametag.html', authenticate, authorizeForRequest, deleteComposition); // REST style
-router.post('/art/:username/:compositionNametag/delete.html', authenticate, authorizeForRequest, deleteComposition); // So we can have a delete button
-
 
 //////////////////
 // OTHER PAGES
