@@ -188,18 +188,19 @@ function copyStringProperties(expectedProperties, from, to) { // copy only the l
 
 // Put the image pointed to by the file object (produced by multer), in the right place and side-effect data
 // to reference it, and then cb(error). No-op if file is not supplied.
+// writerFunction(error, data, data) is called, so that a store.update writerFunction has access to data even when an error.
 function handlePictureUpload(file, data, writerFunction) {
-    function cb(error) { writerFunction(error, data); }
+    function cb(error) { writerFunction(error, data, data); }
     function mediaPath(idtag) { return path.join(media, idtag); }
     if (!file) { return setImmediate(cb); }
     var extension = path.extname(file.originalname).toLowerCase();
     if (extension === '.jpg') { extension = '.jpeg'; }
     file.mimetype = file.mimetype.toLowerCase();
     if (file.mimetype !== 'image/' + extension.slice(1)) {
-        return writerFunction(badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'));
+        return writerFunction(badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'), data, data);
     }
     fs.readFile(file.path, function (error, buffer) {
-        if (error) { return writerFunction(error); }
+        if (error) { return writerFunction(error, data, data); }
         var idtag = crypto.createHash('sha256').update(buffer).digest('hex') + extension,
             target = mediaPath(idtag);
         function finish() {
@@ -307,6 +308,7 @@ var MINIMUM_LIFETIME_MILLISECONDS_PER_USERNAME_CHANGE = 24 * 60 * 60 * 1000;
 // Normalize and merge into existing data, keeping everything consistent and verified (e.g., username nametags in store).
 function updateMember(req, res, next) {
     ignore(next);
+    // We don't get/set old data using store.update, because authentication already grabbed any old data as req.user.
     var data = req.user || {idtag: uuid.v4()}; // will accumulate the final answer
     var newData = req.body;
     var idtag = data.idtag;
@@ -402,7 +404,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
         var docName = compositionIdtag2Docname(idtag);
         function transformer(data, writerFunction) {
             if (!data && !newComposition) {
-                return writerFunction(unknown(member.username + " " + nametag));
+                return writerFunction(unknown(member.username + " " + nametag), data, data);
             }
             var oldNametag = data.nametag;
             copyStringProperties(['title', 'description', 'price', 'dimensions', 'medium'], req.body, data);
@@ -413,14 +415,18 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
                 return handlePictureUpload(req.file, data, writerFunction);
             }
             ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, 'Composition nametag', function (error) {
-                if (error) { return writerFunction(error); }
+                if (error) { return writerFunction(error, data, data); }
                 propertyPush(data, 'oldNametags', oldNametag, true); // keep track of old so that we can clean up when deleting composition
                 handlePictureUpload(req.file, data, writerFunction);
             });
         }
-        store.update(docName, {}, transformer, function (error) {
-            // FIXME: display error and leave user on form
-            if (error) { return next(error); }
+        store.update(docName, {}, transformer, function (error, data) { // data comes from third arg to writerFunction
+            if (error) {
+                data.error = error.message;
+                if (error.status) { res.statusCode = error.status; }
+                data.artist = member;
+                return res.render('updateComposition', data);
+            }
             // FIXME: This is a lot of unnecessary round trips and lookups. For now, it's a good test that we got the parsing right.
             var url = '/art/' + member.username + '/' + nametag + '.html';
             res.redirect(url);
@@ -438,7 +444,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
         });
     } else {
         resolveCompositionName(member.idtag, nametag, function (error, idtag) {
-            // If it doesn't exist, it cannot be one of ours.
+            // If it doesn't exist, it cannot be one of ours. No point in preserving form data.
             if (error) { return next(store.doesNotExist(error) ? forbiddenComposition(nametag) : error); }
             update(idtag);
         });
