@@ -1,4 +1,4 @@
-# canvascat
+# CanvasCat
 
 A site for buying and selling art.
 
