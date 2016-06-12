@@ -29,6 +29,7 @@
      These are defined in the views directory.
  4. Other files are just served directly from the public directory (defined
 */
+process.title = 'canvascat';          // added so we can kill the server with shell (pkill canvascat)
 
 var express = require('express');
 var path = require('path');

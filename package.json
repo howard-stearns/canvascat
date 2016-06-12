@@ -3,7 +3,9 @@
     "version": "0.0.1",
     "description": "A site for buying and selling art.",
     "scripts": {
-        "start": "node ./bin/www"
+        "start": "node ./bin/www",
+        "stop": "pkill canvascat",
+        "test": "mocha"
     },
     "repository": {
         "type": "git",
@@ -16,7 +18,19 @@
     },
     "homepage": "https://github.com/howard-stearns/canvascat",
     "files": [
-        "app.js"
+        "README.md",
+        "app.js",
+        "views/error.jade",
+        "views/layout.jade",
+        "views/item.jade",
+        "views/index.jade",
+        "views/member.jade",
+        "views/updateMember.jade",
+        "views/compsoition.jade",
+        "views/updateComposition.jade",
+        "routes/index.js",
+        "public/stylesheets/style.css",
+        "test/test.js"
     ],
     "dependencies": {
         "async": "~1.5.2",
@@ -32,5 +46,12 @@
         "passport-http": "~0.3.0",
         "serve-favicon": "~2.3.0",
         "uuid": "~2.0.2"
+    },
+    "devDependencies": {
+        "cheerio": "~0.20.0",
+        "mocha": "~2.5.3",
+        "request": "2.72.0",
+        "underscore": "~1.8.3"
     }
+
 }

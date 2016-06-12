@@ -455,7 +455,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
 // OTHER PAGES
 //////////////////
 
-router.get('/', function (req, res, next) {
+router.get(/^\/(index.html)?$/, function (req, res, next) {
     ignore(req, next);
     res.render('index');
 });
