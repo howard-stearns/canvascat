@@ -25,3 +25,6 @@ artist, website {
 discription, medium, price, buyer, dimensions, category, update, add-art, add-member, email, username, password, error {
     display: block;
 }
+input {
+    width: 400px;
+}

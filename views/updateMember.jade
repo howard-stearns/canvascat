@@ -14,10 +14,10 @@ block content
       email
         input(type="email", required, name="email", value=email, placeholder="email to be confirmed", pattern=".*\\w+@\\w+\\.\\w+.*")
       username
-        input(type="text", required, name="username", value=username, placeholder="appears in URLs, but not otherwise displayed")
+        input(type="text", required, name="username", value=username, placeholder="Unique username appears in URLs, but not otherwise displayed.")
       password
-        input(type="password", required=newMember, name="password")
-        input(type="password", required=newMember, name="repeatPassword")
+        input(type="password", required=newMember, name="password", placeholder="password")
+        input(type="password", required=newMember, name="repeatPassword", placeholder="repeat password")
       picture
         input(type="file", name="picture", placeholder="people respond better to a nice profile picture")
       input(type="submit")
