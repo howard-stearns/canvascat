@@ -1,21 +1,22 @@
 extends item
 
 block content
-  h1= title
-  h3
-    a(href=artist.url)= artist.title
-  img(src=pictureUrl)
-  p= description
-  p= medium
-  p= price
-  if buyer
-    h3
-      a(href=buyer.url)= buyer.title
-  p= dimensions
-  p= category
-  p
-    a(href=updateUrl) update
-  p
-    a(href=addCompositionUrl) add composition
-  p
-    a(href="/update-member/new/profile.html") signup
+  composition
+    title= title
+    artist
+      a(href=artist.url)= artist.title
+    img(src=pictureUrl)
+    description= description
+    medium= medium
+    price= price
+    if buyer
+      buyer
+        a(href=buyer.url)= buyer.title
+    dimensions= dimensions
+    category= category
+    update
+      a(href=updateUrl) update
+    add-art
+      a(href=addCompositionUrl) add composition
+    add-member
+      a(href="/update-member/new/profile.html") signup

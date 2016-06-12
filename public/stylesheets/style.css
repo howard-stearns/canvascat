@@ -6,3 +6,18 @@ body {
 a {
   color: #00B7FF;
 }
+
+body title {
+    display: block;
+    font-size: 2em;
+    font-weight: bold;
+}
+
+artist {
+    display: block;
+    font-size: 1.17em;
+    font-weight: bold;
+}
+discription, medium, price, buyer, dimensions, category, update, add-art, add-member {
+    display: block;
+}
