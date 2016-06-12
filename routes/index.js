@@ -66,7 +66,7 @@ function compositionIdtag2Docname(idtag) {
     return docname(compositions, idtag + '.json');
 }
 function readablyEncode(nfkdString) { // Encode suitably for a url, as readable as practical.
-    var string = nfkdString.toLowerCase();
+    var string = (nfkdString || '').toLowerCase();
     return encodeURIComponent(string).replace(/%../g, '+');
 }
 function mediaUrl(idtag) { // The file extension is already part of the idtag.
@@ -351,7 +351,7 @@ function updateMember(req, res, next) {
             return finish(tooMany("Too many username changes."));
         }
     }
-    ensureUniqueNametag(members, data.username, idtag, 'Username', function (error) {
+    ensureUniqueNametag(memberNametags, data.username, idtag, 'Username', function (error) {
         if (error) { return finish(error); }
         if (oldUsername) { return update(); }
         data.created = Date.now();
@@ -361,9 +361,20 @@ function updateMember(req, res, next) {
 // Two different routes because the authentication is different for a new profile vs changing an existing profile.
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
-// We do not currently have a destroy member operation. There may be transactions involving the member.
-// However, one can unlist all your compositions, and/or update your data to something not very meaningful.
 
+// For internal (testing) use only. Composition must be cleaned up separately.
+router.delete('/member/:username/profile.html', function (req, res, next) {
+    getMember(req.params.username, function (error, data, idtag) {
+        if (error) { return next(error); } // Cannot go further
+        async.each((data.oldUsernames || []).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
+            if (error) { console.log('nametag cleanup', error); } // log it and move on
+            store.destroyCollection(memberCollectionname(idtag), function (error) {
+                if (error) { return next(error); }
+                res.send('ok');
+            });
+        });
+    });
+});
 //////////////////
 // COMPOSITIONS
 //////////////////

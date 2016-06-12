@@ -1,6 +1,6 @@
 "use strict";
 /*jslint node: true, nomen: true, vars: true */
-var fs = require('fs');
+var fs = require('fs-extra');
 var path = require('path');
 var crypto = require('crypto');
 var assert = require('assert');
@@ -14,7 +14,7 @@ var testUserPass = process.env.TEST_USER_AUTH;
 if (!testUserPass) { throw new Error('Please specify TEST_USER_AUTH'); }
 var credentials = {user: 'howard', pass: testUserPass};
 
-describe('server', function () {
+describe('CanvasCat', function () {
     var port = 3000, base = 'http://localhost:' + port, ourServer; // the server we should talk to
     var stats = {};
     function serverIsRunning() { // true if the server is listening
@@ -44,16 +44,11 @@ describe('server', function () {
             });
         });
     }
-    function maybeAuthed(path) { // media requires credentials, other get methods do not.
-        var opts = {url: base + path};
-        if (path.indexOf('media') !== -1) { opts.auth = credentials; }
-        return opts;
-    }
     // Define tests that get path multiple times, ensure mime type, and any optionalTests({response, body}),
     function page(path, optionalTests) {
         var data = {};
         it('get ' + path, function (done) {
-            request(maybeAuthed(path), function (error, res, bod) {
+            request(base + path, function (error, res, bod) {
                 assert.ifError(error);
                 data.response = res;
                 data.body = bod;
@@ -83,9 +78,8 @@ describe('server', function () {
         // if data.filename, we read that instead, and set data.buffer to the content, and data.mime
         var expectedResponse = optionalExpected || {status: 'ok'};
         var dir = path.dirname(pathname);
-        // Two of these don't correspond to get's with the same name, and so use 'POST'. The rest are 'PUT' semantics.
-        var method = _.contains(['/fbusr', '/pRefs'], dir) ? 'POST' : 'PUT';
-        auth(pathname, ('/fbusr' === dir) ? 'skip' :  method); // FIXME: Don't skip auth for /fbusr
+        var method = 'POST';
+        auth(pathname, method);
         it('uploads ' + pathname, function (done) {
             var body = {uri: base + pathname, method: method, auth: credentials};
             function testBody() {
@@ -110,24 +104,6 @@ describe('server', function () {
                 body.json = data;
                 testBody();
             }
-        });
-    }
-    // Confirms that path can be DELETEd, after which a GET fails, and authorization is required.
-    function deletes(path) {
-        var uri = base + path;
-        auth(path, 'delete');
-        it('deletes ' + path, function (done) {
-            request({uri: uri, method: 'DELETE', json: true, auth: credentials}, function (e, res, b) {
-                assert.ifError(e);
-                assert.equal(res.statusCode, 200, res.statusMessage);
-                assertOk(b);
-                // And now a GET produces file-not-found.
-                request(maybeAuthed(path), function (e, res) {
-                    assert.ifError(e);
-                    assert.equal(res.statusCode, 404, res.statusMessage);
-                    done();
-                });
-            });
         });
     }
     before(function (done) { // Start server if necessary
@@ -192,28 +168,119 @@ describe('server', function () {
             assert.ok(data.$('add-member a').is('a'));
         });
     });
-    page('/member/howard/profile.html', function (data) {
-        it('has title', function () {
-            data.$ = cheerio.load(data.body);
-            assert.equal(data.$('name').text(), 'Howard Stearns');
+    var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
+    user1.path = '/member/' + user1.username + '/profile.html';
+    user1.update = user1.path.replace('member', 'update-member');
+    user1.newArt = '/update-art/' + user1.username + '/new.html';
+    var newMember = '/update-member/new/profile.html';
+
+    describe('member', function () {
+        describe('creation', function () {
+
+            describe('upload form', function () {
+                page(newMember, function (data) {
+                    it('form has name', function () {
+                        data.$ = cheerio.load(data.body);
+                        assert.equal(data.$('form name input').attr('name'), 'title');
+                    });
+                    it('has website', function () {
+                        assert.equal(data.$('form website input').attr('name'), 'website');
+                    });
+                    it('has website', function () {
+                        assert.equal(data.$('form description input').attr('name'), 'description');
+                    });
+                    it('has website', function () {
+                        assert.equal(data.$('form email input').attr('name'), 'email');
+                    });
+                    it('has password', function () {
+                        assert.equal(data.$('form password input').attr('name'), 'password');
+                    });
+                    it('has picture', function () {
+                        assert.equal(data.$('form picture input').attr('name'), 'picture');
+                    });
+                });
+            });
+
+            describe('server checks', function () {
+                function requires(property, submittedData, optionalMessage) {
+                    it('requires ' + property, function (done) {
+                        request({uri: base + newMember, method: 'POST', formData: submittedData}, function (e, res, body) {
+                            assert.ifError(e);
+                            assert.equal(res.statusCode, 400, res.statusMessage);
+                            var $ = cheerio.load(body);
+                            assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
+                            done();
+                        });
+                    });
+                }
+                requires('title', {});
+                requires('username', {title: 't'});
+                requires('email', {title: 't', username: 'u'});
+                requires('passwordHash', {title: 't', username: 'u', email: 'e'});
+                requires('matching password', {title: 't', username: 'u', email: 'e', password: 'foo'}, 'Passwords do not match.');
+            });
+
+            function confirmMember(member) {
+                it('has correct title', function () {
+                    assert.equal(member.$('name').text(), member.title);
+                });
+                it('has correct website', function () {
+                    assert.equal(member.$('description').text(), member.website || '');
+                });
+                it('has correct description', function () {
+                    assert.equal(member.$('description').text(), member.description || '');
+                });
+                it('has image', function () {
+                    assert.ok(member.$('img').is('img'));
+                });
+                it('has update', function () {
+                    assert.equal(member.$('update a').attr('href'), member.update);
+                });
+                it('has add-art', function () {
+                    assert.equal(member.$('add-art a').attr('href'), member.newArt);
+                });
+                it('has add-member', function () {
+                    assert.equal(member.$('add-member a').attr('href'), newMember);
+                });
+            }
+            describe('initial member upload', function () {
+                it('allows missing website, description, and picture', function (done) {
+                    request({uri: base + newMember, method: 'POST', formData: user1, followAllRedirects: true}, function (e, res, body) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 200, res.statusMessage);
+                        user1.$ = cheerio.load(body);
+                        done();
+                    });
+                });
+                confirmMember(user1);
+                page(user1.path, function (data) {
+                    it('parses as html', function (done) {
+                        user1.$ = cheerio.load(data.body);
+                        done();
+                    });
+                    confirmMember(user1);
+                });
+            });
         });
-        it('has website', function () {
-            assert.equal(data.$('website').text(), 'http://ki1r0y.com');
-        });
-        it('has description', function () {
-            assert.equal(data.$('description').text(), 'statement 4');
-        });
-        it('has image', function () {
-            assert.ok(data.$('img').is('img'));
-        });
-        it('has update', function () {
-            assert.ok(data.$('update a').is('a'));
-        });
-        it('has add-art', function () {
-            assert.ok(data.$('add-art a').is('a'));
-        });
-        it('has add-member', function () {
-            assert.ok(data.$('add-member a').is('a'));
-        });
+    });
+
+    describe('cleanup', function () {
+        function deletes(path) { // FIXME: require authorization!
+            var uri = base + path;
+            it('deletes ' + path, function (done) {
+                request({uri: uri, method: 'DELETE'}, function (e, res, b) {
+                    assert.ifError(e);
+                    assert.equal(res.statusCode, 200, res.statusMessage);
+                    assert.ok(b);
+                    // And now a GET produces file-not-found.
+                    request(uri, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 404, res.statusMessage);
+                        done();
+                    });
+                });
+            });
+        }
+        deletes(user1.path);
     });
 });
