@@ -30,6 +30,7 @@
  4. Other files are just served directly from the public directory (defined
 */
 process.title = 'canvascat';          // added so we can kill the server with shell (pkill canvascat)
+var doesNotExist = require('ki1r0y.fs-store').doesNotExist;
 
 var express = require('express');
 var path = require('path');
@@ -63,27 +64,13 @@ app.use(function(req, res, next) {
     next(err);
 });
 
-// error handlers
-
-// development error handler
-// will print stacktrace
-if (app.get('env') === 'development') {
-    app.use(function(err, req, res, next) {
-        res.status(err.status || 500);
-        res.render('error', {
-            message: err.message,
-            error: err
-        });
-    });
-}
-
-// production error handler
-// no stacktraces leaked to user
+// error handler (slightly modified from that produced by expressjs generator
 app.use(function(err, req, res, next) {
+    if (doesNotExist(err)) { err.status = 404; } // Internal not founds are 404s
     res.status(err.status || 500);
     res.render('error', {
         message: err.message,
-        error: {}
+        error: (app.get('env') === 'development') ? err : {} // No stack trace in production.
     });
 });
 
