@@ -1,14 +1,15 @@
 extends item
 
 block content
-  h1= title
-  h3
-    a(href=website)= website
-  p= description
-  img(src=pictureUrl)
-  p
-    a(href=updateUrl) update
-  p
-    a(href=addCompositionUrl) add composition
-  p
-    a(href="/update-member/new/profile.html") signup
+  profile
+    title= title
+    website
+      a(href=website)= website
+    description= description
+    img(src=pictureUrl)
+    update
+      a(href=updateUrl) update
+    add-art
+      a(href=addCompositionUrl) add composition
+    add-member
+      a(href="/update-member/new/profile.html") signup

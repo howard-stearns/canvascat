@@ -192,5 +192,28 @@ describe('server', function () {
             assert.ok(data.$('add-member a').is('a'));
         });
     });
-    page('/member/howard/profile.html');
+    page('/member/howard/profile.html', function (data) {
+        it('has title', function () {
+            data.$ = cheerio.load(data.body);
+            assert.equal(data.$('body title').text(), 'Howard Stearns');
+        });
+        it('has website', function () {
+            assert.equal(data.$('website').text(), 'http://ki1r0y.com');
+        });
+        it('has description', function () {
+            assert.equal(data.$('description').text(), 'statement 4');
+        });
+        it('has image', function () {
+            assert.ok(data.$('img').is('img'));
+        });
+        it('has update', function () {
+            assert.ok(data.$('update a').is('a'));
+        });
+        it('has add-art', function () {
+            assert.ok(data.$('add-art a').is('a'));
+        });
+        it('has add-member', function () {
+            assert.ok(data.$('add-member a').is('a'));
+        });
+    });
 });
