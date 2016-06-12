@@ -364,6 +364,9 @@ router.post('/update-member/:username/profile.html', authenticate, authorizeForR
 
 // For internal (testing) use only. Composition must be cleaned up separately.
 router.delete('/member/:username/profile.html', function (req, res, next) {
+    if ((req.ip !== '::1') && (req.headers.host !== 'localhost:3000')) {
+        return next(forbidden('Local delete only'));
+    }
     getMember(req.params.username, function (error, data, idtag) {
         if (error) { return next(error); } // Cannot go further
         async.each((data.oldUsernames || []).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
