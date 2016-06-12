@@ -7,13 +7,13 @@ a {
   color: #00B7FF;
 }
 
-body title {
+name {
     display: block;
     font-size: 2em;
     font-weight: bold;
 }
 
-composition img, profile img {
+picture {
     display: block;
 }
 
@@ -22,6 +22,6 @@ artist, website {
     font-size: 1.17em;
     font-weight: bold;
 }
-discription, medium, price, buyer, dimensions, category, update, add-art, add-member {
+discription, medium, price, buyer, dimensions, category, update, add-art, add-member, email, username, password, error {
     display: block;
 }

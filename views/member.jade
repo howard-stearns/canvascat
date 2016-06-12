@@ -2,11 +2,12 @@ extends item
 
 block content
   profile
-    title= title
+    name= title
     website
       a(href=website)= website
     description= description
-    img(src=pictureUrl)
+    picture
+      img(src=pictureUrl)
     update
       a(href=updateUrl) update
     add-art

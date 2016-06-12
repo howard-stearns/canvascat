@@ -2,10 +2,11 @@ extends item
 
 block content
   composition
-    title= title
+    name= title
     artist
       a(href=artist.url)= artist.title
-    img(src=pictureUrl)
+    picture
+      img(src=pictureUrl)
     description= description
     medium= medium
     price= price

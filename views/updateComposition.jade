@@ -3,14 +3,21 @@ extends layout
 block content
   form(method="post", enctype="multipart/form-data")
     if error
-      p= error
-    input(type="text", required, name="title", value=title, placeholder="Composition title must be unique among your compositions.")
-    input(type="text", name="description", value=description, placeholder="artist statement or description")
-    input(type="text", required, name="price", value=price, placeholder="price in US dollars")
-    input(type="text", required, name="dimensions", value=dimensions, placeholder="width x height x depth, in inches.")
-    input(type="text", required, name="medium", value=medium, placeholder="oil, acrylic, etc.")
-    input(type="text", name="category", value=(category || []).join(' '), placeholder="list of portrait, abstract, nude, etc.")
-    input(type="file", required=newComposition, name="picture", placeholder="Upload a good clear photograph.")
+      error= error
+    name
+      input(type="text", required, name="title", value=title, placeholder="Composition title must be unique among your compositions.")
+    description
+      input(type="text", name="description", value=description, placeholder="artist statement or description")
+    price
+      input(type="text", required, name="price", value=price, placeholder="price in US dollars")
+    dimensions
+      input(type="text", required, name="dimensions", value=dimensions, placeholder="width x height x depth, in inches.")
+    medium
+      input(type="text", required, name="medium", value=medium, placeholder="oil, acrylic, etc.")
+    category
+      input(type="text", name="category", value=(category || []).join(' '), placeholder="list of portrait, abstract, nude, etc.")
+    picture
+      input(type="file", required=newComposition, name="picture", placeholder="Upload a good clear photograph.")
     input(type="submit")
   h3
     a(href=artist.url)= artist.title

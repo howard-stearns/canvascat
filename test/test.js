@@ -159,7 +159,7 @@ describe('server', function () {
     page('/art/howard.stearns/memetic+hazard.html', function (data) {
         it('has title', function () {
             data.$ = cheerio.load(data.body);
-            assert.equal(data.$('body title').text(), 'Memetic Hazard 2');
+            assert.equal(data.$('name').text(), 'Memetic Hazard 2');
         });
         it('has artist', function () {
             assert.equal(data.$('artist').text(), 'Howard Stearns');
@@ -195,7 +195,7 @@ describe('server', function () {
     page('/member/howard/profile.html', function (data) {
         it('has title', function () {
             data.$ = cheerio.load(data.body);
-            assert.equal(data.$('body title').text(), 'Howard Stearns');
+            assert.equal(data.$('name').text(), 'Howard Stearns');
         });
         it('has website', function () {
             assert.equal(data.$('website').text(), 'http://ki1r0y.com');
