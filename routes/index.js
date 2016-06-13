@@ -194,8 +194,9 @@ function handlePictureUpload(file, data, writerFunction) {
     function mediaPath(idtag) { return path.join(media, idtag); }
     if (!file) { return setImmediate(cb); }
     var extension = path.extname(file.originalname).toLowerCase();
-    if (extension === '.jpg') { extension = '.jpeg'; }
     file.mimetype = file.mimetype.toLowerCase();
+    if (extension === '.jpg') { extension = '.jpeg'; }
+    if (file.mimetype === 'image/jpg') { file.mimetype = 'image/jpeg'; }
     if (file.mimetype !== 'image/' + extension.slice(1)) {
         return writerFunction(badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'), data, data);
     }

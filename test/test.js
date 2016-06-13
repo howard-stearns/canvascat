@@ -168,15 +168,67 @@ describe('CanvasCat', function () {
             assert.ok(data.$('add-member a').is('a'));
         });
     });
+    function updatePaths(user) {
+        var uname = encodeURIComponent(user.username.toLowerCase()).replace(/%../g, '+');
+        user.path = '/member/' + uname + '/profile.html';
+        user.update = user.path.replace('member', 'update-member');
+        user.newArt = '/update-art/' + uname + '/new.html';
+    }
     var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
-    user1.path = '/member/' + user1.username + '/profile.html';
-    user1.update = user1.path.replace('member', 'update-member');
-    user1.newArt = '/update-art/' + user1.username + '/new.html';
+    var user2 = {title: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
+                 website: 'http://canvascat.com', description: 'This is a test user.'};
     var newMember = '/update-member/new/profile.html';
+    updatePaths(user1);
+    updatePaths(user2);
 
     describe('member', function () {
-        describe('creation', function () {
+        function confirmMember(member) {
+            it('has correct title', function () {
+                assert.equal(member.$('name').text(), member.title);
+            });
+            it('has correct website', function () {
+                assert.equal(member.$('website').text(), member.website || '');
+            });
+            it('has correct description', function () {
+                assert.equal(member.$('description').text(), member.description || '');
+            });
+            it('has image', function (done) {
+                if (!member.picture) {
+                    assert.ok(member.$('img').is('img'));
+                    done();
+                } else {
+                    request(base + member.$('img').attr('src'), function (e, res, body) {
+                        assert.ifError(e);
+                        var mime = res.headers['content-type'];
+                        assert.equal(mime.slice(0, mime.indexOf('/')), 'image');
+                        assert.equal(body, member.picture.value);
+                        done();
+                    });
+                }
+            });
+            it('has update', function () {
+                assert.equal(member.$('update a').attr('href'), member.update);
+            });
+            it('has add-art', function () {
+                assert.equal(member.$('add-art a').attr('href'), member.newArt);
+            });
+            it('has add-member', function () {
+                assert.equal(member.$('add-member a').attr('href'), newMember);
+            });
+        }
 
+        describe('creation', function () {
+            function requires(property, submittedData, optionalMessage, optionalCode) {
+                it('requires ' + property, function (done) {
+                    request({uri: base + newMember, method: 'POST', formData: submittedData}, function (e, res, body) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, optionalCode || 400, res.statusMessage);
+                        var $ = cheerio.load(body);
+                        assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
+                        done();
+                    });
+                });
+            }
             describe('upload form', function () {
                 page(newMember, function (data) {
                     it('form has name', function () {
@@ -186,10 +238,10 @@ describe('CanvasCat', function () {
                     it('has website', function () {
                         assert.equal(data.$('form website input').attr('name'), 'website');
                     });
-                    it('has website', function () {
+                    it('has description', function () {
                         assert.equal(data.$('form description input').attr('name'), 'description');
                     });
-                    it('has website', function () {
+                    it('has email', function () {
                         assert.equal(data.$('form email input').attr('name'), 'email');
                     });
                     it('has password', function () {
@@ -202,17 +254,6 @@ describe('CanvasCat', function () {
             });
 
             describe('server checks', function () {
-                function requires(property, submittedData, optionalMessage) {
-                    it('requires ' + property, function (done) {
-                        request({uri: base + newMember, method: 'POST', formData: submittedData}, function (e, res, body) {
-                            assert.ifError(e);
-                            assert.equal(res.statusCode, 400, res.statusMessage);
-                            var $ = cheerio.load(body);
-                            assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
-                            done();
-                        });
-                    });
-                }
                 requires('title', {});
                 requires('username', {title: 't'});
                 requires('email', {title: 't', username: 'u'});
@@ -220,29 +261,6 @@ describe('CanvasCat', function () {
                 requires('matching password', {title: 't', username: 'u', email: 'e', password: 'foo'}, 'Passwords do not match.');
             });
 
-            function confirmMember(member) {
-                it('has correct title', function () {
-                    assert.equal(member.$('name').text(), member.title);
-                });
-                it('has correct website', function () {
-                    assert.equal(member.$('description').text(), member.website || '');
-                });
-                it('has correct description', function () {
-                    assert.equal(member.$('description').text(), member.description || '');
-                });
-                it('has image', function () {
-                    assert.ok(member.$('img').is('img'));
-                });
-                it('has update', function () {
-                    assert.equal(member.$('update a').attr('href'), member.update);
-                });
-                it('has add-art', function () {
-                    assert.equal(member.$('add-art a').attr('href'), member.newArt);
-                });
-                it('has add-member', function () {
-                    assert.equal(member.$('add-member a').attr('href'), newMember);
-                });
-            }
             describe('initial member upload', function () {
                 it('allows missing website, description, and picture', function (done) {
                     request({uri: base + newMember, method: 'POST', formData: user1, followAllRedirects: true}, function (e, res, body) {
@@ -261,6 +279,37 @@ describe('CanvasCat', function () {
                     confirmMember(user1);
                 });
             });
+            describe('second initial member upload', function () {
+                var badUser = JSON.parse(JSON.stringify(user2));
+                badUser.username = user1.username;
+                before(function (done) {
+                    var filename = 'test2.jpg', ext = path.extname(filename).slice(1), mime = 'image/' + ext;
+                    fs.readFile(path.join(__dirname, 'test2.jpg'), function (e, buf) {
+                        user2.picture = {value: buf, options: {filename: filename, contentType: mime}};
+                        done(e);
+                    });
+                });
+                requires('unique username', badUser, 'Username ' + user1.username + ' is already in use.', 409);
+                it('allows specified website, description, and picture', function (done) {
+                    request({uri: base + newMember, method: 'POST', formData: user2, followAllRedirects: true}, function (e, res, body) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 200, res.statusMessage);
+                        user2.$ = cheerio.load(body);
+                        done();
+                    });
+                });
+                confirmMember(user2);
+                page(user2.path, function (data) {
+                    it('parses as html', function (done) {
+                        user2.$ = cheerio.load(data.body);
+                        done();
+                    });
+                    confirmMember(user2);
+                });
+            });
+        });
+        
+        describe('update', function () {
         });
     });
 
@@ -282,5 +331,6 @@ describe('CanvasCat', function () {
             });
         }
         deletes(user1.path);
+        deletes(user2.path);
     });
 });
