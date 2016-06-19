@@ -45,10 +45,12 @@ describe('CanvasCat', function () {
         });
     }
     // Define tests that get path multiple times, ensure mime type, and any optionalTests({response, body}),
-    function page(path, optionalTests) {
+    function page(path, optionalTests, optionalAuth) {
         var data = {};
+        var options = {uri: base + path};
+        if (optionalAuth) { options.auth = optionalAuth; }
         it('get ' + path, function (done) {
-            request(base + path, function (error, res, bod) {
+            request(options, function (error, res, bod) {
                 assert.ifError(error);
                 data.response = res;
                 data.body = bod;
@@ -61,11 +63,10 @@ describe('CanvasCat', function () {
             // This isn't a load test. It's a smoke test that path can be called a lot on the same machine without something going seriously wrong.
             var start = Date.now();
             var n = 100;
-            var uri = base + path;
             this.timeout(10 * 1000);
             async.times(n, function (n, ncb) {
                 _.noop(n);
-                request(uri, ncb);
+                request(options, ncb);
             }, function (e) {
                 assert.ifError(e);
                 var elapsed = Date.now() - start;
@@ -106,6 +107,7 @@ describe('CanvasCat', function () {
             }
         });
     }
+    function cleanNametag(nametag) { return encodeURIComponent(nametag.toLowerCase()).replace(/%../g, '+'); }
     before(function (done) { // Start server if necessary
         this.timeout(10 * 1000);
         if (serverIsRunning()) { return done(); }
@@ -169,7 +171,7 @@ describe('CanvasCat', function () {
         });
     });
     function updatePaths(user) {
-        var uname = encodeURIComponent(user.username.toLowerCase()).replace(/%../g, '+');
+        var uname = cleanNametag(user.username);
         user.path = '/member/' + uname + '/profile.html';
         user.update = user.path.replace('member', 'update-member');
         user.newArt = '/update-art/' + uname + '/new.html';
@@ -177,6 +179,9 @@ describe('CanvasCat', function () {
     var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
     var user2 = {title: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
                  website: 'http://canvascat.com', description: 'This is a test user.'};
+    var badUser1 = JSON.parse(JSON.stringify(user1)), badUser2 = JSON.parse(JSON.stringify(user2));
+    badUser1.username = user2.username;
+    badUser2.username = user1.username;
     var newMember = '/update-member/new/profile.html';
     updatePaths(user1);
     updatePaths(user2);
@@ -206,53 +211,94 @@ describe('CanvasCat', function () {
                     });
                 }
             });
-            it('has update', function () {
+            it('has correct update', function () {
                 assert.equal(member.$('update a').attr('href'), member.update);
             });
-            it('has add-art', function () {
+            it('has correct add-art', function () {
                 assert.equal(member.$('add-art a').attr('href'), member.newArt);
             });
-            it('has add-member', function () {
+            it('has correct add-member', function () {
                 assert.equal(member.$('add-member a').attr('href'), newMember);
             });
         }
 
-        describe('creation', function () {
-            function requires(property, submittedData, optionalMessage, optionalCode) {
-                it('requires ' + property, function (done) {
-                    request({uri: base + newMember, method: 'POST', formData: submittedData}, function (e, res, body) {
-                        assert.ifError(e);
-                        assert.equal(res.statusCode, optionalCode || 400, res.statusMessage);
+        function uploadRequires(path, property, submittedData, optionalMessage, optionalCode, auth) {
+            it('requires ' + property, function (done) {
+                var data = {uri: base + path, method: 'POST', formData: submittedData};
+                if (auth) { data.auth = auth; }
+                request(data, function (e, res, body) {
+                    assert.ifError(e);
+                    assert.equal(res.statusCode, optionalCode || 400, res.statusMessage);
+                    if (optionalMessage !== false) {
                         var $ = cheerio.load(body);
                         assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
+                    }
+                    done();
+                });
+            });
+        }
+        function confirmUpload(suiteName, route, user, imageFilename, auth) {
+            describe(suiteName, function () {
+                before(function (done) {
+                    var filename = imageFilename, ext = path.extname(filename).slice(1), mime = 'image/' + ext;
+                    fs.readFile(path.join(__dirname, imageFilename), function (e, buf) {
+                        user.picture = {value: buf, options: {filename: filename, contentType: mime}};
+                        done(e);
+                    });
+                });
+                it('allows specified website, description, and picture', function (done) {
+                    var options = {uri: route, method: 'POST', formData: user, followAllRedirects: true};
+                    delete user.$; // if any. we don't want to upload that
+                    if (auth) { options.auth = auth; }
+                    request(options, function (e, res, body) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 200, res.statusMessage);
+                        user.$ = cheerio.load(body);
                         done();
                     });
                 });
-            }
+                confirmMember(user); // confirming result of upload
+                page(user.path, function (data) {
+                    it('parses as html', function (done) {
+                        user.$ = cheerio.load(data.body);
+                        done();
+                    });
+                    confirmMember(user); // confirming result of get
+                });
+            });
+        }
+        describe('creation', function () {
             describe('upload form', function () {
+                var $;
+                function check(selector, propertyName) {
+                    var element = $(selector);
+                    assert.equal(element.attr('name'), propertyName);
+                }
                 page(newMember, function (data) {
                     it('form has name', function () {
-                        data.$ = cheerio.load(data.body);
-                        assert.equal(data.$('form name input').attr('name'), 'title');
+                        $ = cheerio.load(data.body);
+                        check('form name input', 'title');
                     });
                     it('has website', function () {
-                        assert.equal(data.$('form website input').attr('name'), 'website');
+                        check('form website input', 'website');
                     });
                     it('has description', function () {
-                        assert.equal(data.$('form description input').attr('name'), 'description');
+                        check('form description input', 'description');
                     });
                     it('has email', function () {
-                        assert.equal(data.$('form email input').attr('name'), 'email');
+                        check('form email input', 'email');
                     });
                     it('has password', function () {
-                        assert.equal(data.$('form password input').attr('name'), 'password');
+                        check('form password input', 'password');
                     });
                     it('has picture', function () {
-                        assert.equal(data.$('form picture input').attr('name'), 'picture');
+                        check('form picture input', 'picture');
                     });
                 });
             });
-
+            function requires(property, submittedData, optionalMessage, optionalCode) {
+                uploadRequires(newMember, property, submittedData, optionalMessage, optionalCode);
+            }
             describe('server checks', function () {
                 requires('title', {});
                 requires('username', {title: 't'});
@@ -278,44 +324,74 @@ describe('CanvasCat', function () {
                     });
                     confirmMember(user1);
                 });
+                requires('unique username', badUser2, 'Username ' + user1.username + ' is already in use.', 409);
             });
-            describe('second initial member upload', function () {
-                var badUser = JSON.parse(JSON.stringify(user2));
-                badUser.username = user1.username;
-                before(function (done) {
-                    var filename = 'test2.jpg', ext = path.extname(filename).slice(1), mime = 'image/' + ext;
-                    fs.readFile(path.join(__dirname, 'test2.jpg'), function (e, buf) {
-                        user2.picture = {value: buf, options: {filename: filename, contentType: mime}};
-                        done(e);
-                    });
-                });
-                requires('unique username', badUser, 'Username ' + user1.username + ' is already in use.', 409);
-                it('allows specified website, description, and picture', function (done) {
-                    request({uri: base + newMember, method: 'POST', formData: user2, followAllRedirects: true}, function (e, res, body) {
-                        assert.ifError(e);
-                        assert.equal(res.statusCode, 200, res.statusMessage);
-                        user2.$ = cheerio.load(body);
-                        done();
-                    });
-                });
-                confirmMember(user2);
-                page(user2.path, function (data) {
-                    it('parses as html', function (done) {
-                        user2.$ = cheerio.load(data.body);
-                        done();
-                    });
-                    confirmMember(user2);
-                });
-            });
+            confirmUpload('second initial member upload', base + newMember, user2, 'test2.jpg');
         });
-        
+
         describe('update', function () {
+            var testAuth = {user: user1.username, pass: user1.password};
+            describe('form', function () {
+                it('requires auth', function (done) {
+                    request(base + user1.update, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 401, res.statusMessage);
+                        done();
+                    });
+                });
+                page(user1.update, function (data) {
+                    var $;
+                    function check(selector, propertyName, enforceNoValue) {
+                        var element = $(selector);
+                        assert.equal(element.attr('name'), propertyName);
+                        assert.equal(element.attr('value'), enforceNoValue ? undefined : user1[propertyName]);
+                    }
+                    it('has name', function () {
+                        $ = cheerio.load(data.body);
+                        check('form name input', 'title');
+                    });
+                    it('has website', function () {
+                        check('form website input', 'website');
+                    });
+                    it('has description', function () {
+                        check('form description input', 'description');
+                    });
+                    it('has email', function () {
+                        check('form email input', 'email');
+                    });
+                    it('has password', function () {
+                        check('form password input', 'password', true);
+                    });
+                    it('has picture', function () {
+                        check('form picture input', 'picture');
+                    });
+                }, testAuth);
+            });
+            function requires(property, submittedData, optionalMessage, optionalCode, auth) {
+                uploadRequires(user1.update, property, submittedData, optionalMessage, optionalCode, auth);
+            }
+            describe('server checks', function () {
+                requires('authentication', {}, false, 401);
+                requires('title', {title: ''}, undefined, undefined, testAuth);
+                requires('username', {title: 't', username: ''}, undefined, undefined, testAuth);
+                requires('email', {title: 't', username: 'u', email: ''}, undefined, undefined, testAuth);
+                requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, testAuth);
+                requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, testAuth);
+            });
+            confirmUpload('member update', base + user1.update, user1, 'test2.jpg', testAuth);
         });
     });
 
     describe('cleanup', function () {
-        function deletes(path) { // FIXME: require authorization!
+        function deletes(path) {
             var uri = base + path;
+            it('requires localhost for delete', function (done) {
+                request({uri: uri.replace('localhost', '127.0.0.1'), method: 'DELETE'}, function (e, res) {
+                    assert.ifError(e);
+                    assert.equal(res.statusCode, 403, res.statusMessage);
+                    done();
+                });
+            });
             it('deletes ' + path, function (done) {
                 request({uri: uri, method: 'DELETE'}, function (e, res, b) {
                     assert.ifError(e);
