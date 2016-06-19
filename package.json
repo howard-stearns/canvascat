@@ -45,14 +45,14 @@
         "passport": "~0.3.2",
         "passport-http": "~0.3.0",
         "serve-favicon": "~2.3.0",
+        "underscore": "~1.8.3",
         "uuid": "~2.0.2"
     },
     "devDependencies": {
         "cheerio": "~0.20.0",
         "fs-extra": "~0.30.0",
         "mocha": "~2.5.3",
-        "request": "2.72.0",
-        "underscore": "~1.8.3"
+        "request": "2.72.0"
     }
 
 }

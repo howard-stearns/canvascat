@@ -16,13 +16,14 @@ var router = express.Router();
 var passport = require('passport');
 var BasicStrategy = require('passport-http').BasicStrategy;
 var async = require('async');
+var _ = require('underscore');
 require('../polyfills');
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// UTILITIES
 /////////////////////////////////////////////////////////////////////////////////////////////
 var DEFAULT_PARALLEL_LIMIT = 50;
-function ignore() { } // Does nothing, and used to document parameters that are deliberately not used.
+var ignore = _.noop; // Does nothing, and used to document parameters that are deliberately not used.
 
 function propertyPush(object, property, newElement, optionalCheck) { // object[property].push(newElement) even if undefined
     var array = object[property] || [];
@@ -65,7 +66,7 @@ function memberNametag2Docname(nametag) {
 function compositionIdtag2Docname(idtag) {
     return docname(compositions, idtag + '.json');
 }
-function readablyEncode(nfkdString) { // Encode suitably for a url, as readable as practical.
+function readablyEncode(nfkdString) { // Encode safely for a url, as readable as practical.
     var string = (nfkdString || '').toLowerCase();
     return encodeURIComponent(string).replace(/%../g, '+');
 }
@@ -259,6 +260,7 @@ function authorizeForRequest(req, res, next) {
     return next(forbidden("Unauthorized " + req.user.username + " for " + req.params.username));
 }
 function rateLimit(req, res, next) {
+    // We could issue tooMany(), but we currently just delay the handling a bit.
     ignore(req, res); // Should probably also guard against overlapping request from same ip.
     setTimeout(next, 1000);
 }
@@ -305,7 +307,8 @@ router.get('/update-member/:username/profile.html', authenticate, authorizeForRe
     res.render('updateMember', req.user);
 });
 
-var MINIMUM_LIFETIME_MILLISECONDS_PER_USERNAME_CHANGE = 24 * 60 * 60 * 1000;
+var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
+var MAX_NAME_CHANGES = 50;
 // Normalize and merge into existing data, keeping everything consistent and verified (e.g., username nametags in store).
 function updateMember(req, res, next) {
     ignore(next);
@@ -338,6 +341,8 @@ function updateMember(req, res, next) {
     var password = newData.password;
     if (password !== newData.repeatPassword) { return finish(badRequest("Passwords do not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
+    // Design choice: we check the combined data, not just the newData. No difference when going through a
+    // a Web page form with default values, checking the combined data is more accepting as an API.
     var missing; // Pun: we catch both '' and undefined.
     ['passwordHash', 'email', 'username', 'title'].forEach(function (name) { if (!data[name]) { missing = name; } });
     if (missing) {
@@ -347,10 +352,19 @@ function updateMember(req, res, next) {
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
     if (oldUsername) {
-        propertyPush(data, 'oldUsernames', oldUsername); // oldUsername can appear many times. Counts against "too many username changes"
-        if (((Date.now() - data.created) / (data.oldUsernames.length + 1)) < MINIMUM_LIFETIME_MILLISECONDS_PER_USERNAME_CHANGE) {
-            return finish(tooMany("Too many username changes."));
+        var now = Date.now();
+        // data.oldUsernames is a map of timestamp => oldUsername, giving us a history of which (possibly repeated) name
+        // was used when. Here we store the data, and also check that the last change was not too recent.
+        // We currently only make use of the last timestamp and, for deletion, the set of names.
+        if (data.oldUsernames) {
+            var changes = Object.keys(data.oldUsernames);
+            if ((changes.length > MAX_NAME_CHANGES) || ((now - parseInt(_.last(changes), 10)) < MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES)) {
+                return finish(tooMany("Too many username changes."));
+            }
+        } else {
+            data.oldUsernames = {};
         }
+        data.oldUsernames[now] = oldUsername;
     }
     ensureUniqueNametag(memberNametags, data.username, idtag, 'Username', function (error) {
         if (error) { return finish(error); }
@@ -370,7 +384,7 @@ router.delete('/member/:username/profile.html', function (req, res, next) {
     }
     getMember(req.params.username, function (error, data, idtag) {
         if (error) { return next(error); } // Cannot go further
-        async.each((data.oldUsernames || []).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
+        async.each((_.values(data.oldUsernames || {})).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
             if (error) { console.log('nametag cleanup', error); } // log it and move on
             store.destroyCollection(memberCollectionname(idtag), function (error) {
                 if (error) { return next(error); }
