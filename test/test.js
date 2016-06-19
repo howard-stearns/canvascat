@@ -179,6 +179,8 @@ describe('CanvasCat', function () {
     var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
     var user2 = {title: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
                  website: 'http://canvascat.com', description: 'This is a test user.'};
+    var auth1 = {user: cleanNametag(user1.username), pass: user1.password};
+    var auth2 = {user: cleanNametag(user2.username), pass: user2.password};
     var badUser1 = JSON.parse(JSON.stringify(user1)), badUser2 = JSON.parse(JSON.stringify(user2));
     badUser1.username = user2.username;
     badUser2.username = user1.username;
@@ -330,12 +332,18 @@ describe('CanvasCat', function () {
         });
 
         describe('update', function () {
-            var testAuth = {user: user1.username, pass: user1.password};
             describe('form', function () {
-                it('requires auth', function (done) {
+                it('requires authentication', function (done) {
                     request(base + user1.update, function (e, res) {
                         assert.ifError(e);
                         assert.equal(res.statusCode, 401, res.statusMessage);
+                        done();
+                    });
+                });
+                it('requires authorization for same user', function (done) {
+                    request({uri: base + user1.update, auth: auth2}, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 403, res.statusMessage);
                         done();
                     });
                 });
@@ -365,20 +373,21 @@ describe('CanvasCat', function () {
                     it('has picture', function () {
                         check('form picture input', 'picture');
                     });
-                }, testAuth);
+                }, auth1);
             });
             function requires(property, submittedData, optionalMessage, optionalCode, auth) {
                 uploadRequires(user1.update, property, submittedData, optionalMessage, optionalCode, auth);
             }
             describe('server checks', function () {
                 requires('authentication', {}, false, 401);
-                requires('title', {title: ''}, undefined, undefined, testAuth);
-                requires('username', {title: 't', username: ''}, undefined, undefined, testAuth);
-                requires('email', {title: 't', username: 'u', email: ''}, undefined, undefined, testAuth);
-                requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, testAuth);
-                requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, testAuth);
+                requires('authorized user', {}, false, 403, auth2);
+                requires('title', {title: ''}, undefined, undefined, auth1);
+                requires('username', {title: 't', username: ''}, undefined, undefined, auth1);
+                requires('email', {title: 't', username: 'u', email: ''}, undefined, undefined, auth1);
+                requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, auth1);
+                requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, auth1);
             });
-            confirmUpload('member update', base + user1.update, user1, 'test2.jpg', testAuth);
+            confirmUpload('member update', base + user1.update, user1, 'test2.jpg', auth1);
         });
     });
 
