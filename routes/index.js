@@ -49,6 +49,7 @@ var members = path.join(db, 'members');
 var memberNametags = path.join(db, 'memberNametags');
 var compositions = path.join(db, 'compositions');
 var media = path.join(db, 'media');
+function mediaPath(idtag) { return path.join(media, idtag); }
 function docname(collection, identifier) { return path.join(collection, identifier); }
 function memberCollectionname(idtag) { return docname(members, idtag); }
 function memberCompositionsCollectionname(idtag) {
@@ -192,7 +193,6 @@ function copyStringProperties(expectedProperties, from, to) { // copy only the l
 // writerFunction(error, data, data) is called, so that a store.update writerFunction has access to data even when an error.
 function handlePictureUpload(file, data, writerFunction) {
     function cb(error) { writerFunction(error, data, data); }
-    function mediaPath(idtag) { return path.join(media, idtag); }
     if (!file) { return setImmediate(cb); }
     var extension = path.extname(file.originalname).toLowerCase();
     file.mimetype = file.mimetype.toLowerCase();
@@ -377,22 +377,6 @@ function updateMember(req, res, next) {
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
 
-// For internal (testing) use only. Composition must be cleaned up separately.
-router.delete('/member/:username/profile.html', function (req, res, next) {
-    if ((req.ip !== '::1') && (req.headers.host !== 'localhost:3000')) {
-        return next(forbidden('Local delete only'));
-    }
-    getMember(req.params.username, function (error, data, idtag) {
-        if (error) { return next(error); } // Cannot go further
-        async.each((_.values(data.oldUsernames || {})).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
-            if (error) { console.log('nametag cleanup', error); } // log it and move on
-            store.destroyCollection(memberCollectionname(idtag), function (error) {
-                if (error) { return next(error); }
-                res.send('ok');
-            });
-        });
-    });
-});
 //////////////////
 // COMPOSITIONS
 //////////////////
@@ -487,6 +471,35 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
 router.get(/^\/(index.html)?$/, function (req, res, next) {
     ignore(req, next);
     res.render('index');
+});
+
+
+// For internal (testing) use only. Composition must be cleaned up separately.
+function deleteAuth(req, res, next) {
+    ignore(res);
+    if ((req.ip !== '::1') && (req.headers.host !== 'localhost:3000')) {
+        return next(forbidden('Local delete only'));
+    }
+    next();
+}
+function makeOpHandler(res, next) { // answer handler that will send 'ok' or give error
+    return function (error) {
+        if (error) { return next(error); }
+        res.send('ok');
+    };
+}
+router.delete('/member/:username/profile.html', deleteAuth, function (req, res, next) {
+    getMember(req.params.username, function (error, data, idtag) {
+        if (error) { return next(error); } // Cannot go further
+        async.each((_.values(data.oldUsernames || {})).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
+            if (error) { console.log('nametag cleanup', error); } // log it and move on
+            store.destroyCollection(memberCollectionname(idtag), makeOpHandler(res, next));
+        });
+    });
+});
+router.delete('/media/:idtag', deleteAuth, function (req, res, next) {
+    ignore(req);
+    fs.unlink(mediaPath(req.params.idtag), makeOpHandler(res, next));
 });
 
 module.exports = router;

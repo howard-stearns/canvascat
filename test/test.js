@@ -28,22 +28,6 @@ describe('CanvasCat', function () {
         }, serverIsRunning, cb);
     }
 
-    // assertions
-    function assertOk(res) { assert.deepEqual(res, {status: 'ok'}); } // Normal uninformative-but-ok json response
-    // reuseable tests
-    function auth(path, method) { // method (e.g., 'get') path requires auth
-        // For delete method and the admin routes, we will require an admin user.
-        method = method || 'get';
-        var title = 'checks authorization for ' + path + ' ' + method;
-        if (method === 'skip') { return it.skip(title); }
-        it(title, function (done) {
-            request({url: base + path, method: method, auth: {user: 'BAD'}}, function (error, res) {
-                assert.ifError(error);
-                assert.equal(res.statusCode, 401, res.statusMessage);
-                done();
-            });
-        });
-    }
     // Define tests that get path multiple times, ensure mime type, and any optionalTests({response, body}),
     function page(path, optionalTests, optionalAuth) {
         var data = {};
@@ -73,38 +57,6 @@ describe('CanvasCat', function () {
                 stats[path] = (n * 1000) / elapsed;
                 done();
             });
-        });
-    }
-    function upload(pathname, data, optionalExpected) {
-        // if data.filename, we read that instead, and set data.buffer to the content, and data.mime
-        var expectedResponse = optionalExpected || {status: 'ok'};
-        var dir = path.dirname(pathname);
-        var method = 'POST';
-        auth(pathname, method);
-        it('uploads ' + pathname, function (done) {
-            var body = {uri: base + pathname, method: method, auth: credentials};
-            function testBody() {
-                request(body, function (e, res, body) {
-                    assert.ifError(e);
-                    assert.equal(res.statusCode, 200, res.statusMessage);
-                    if (_.isString(body)) { body = JSON.parse(body); } // ... but request() doesn't parse it if we post formData.
-                    assert.deepEqual(body, expectedResponse);
-                    done();
-                });
-            }
-            if (data.filename) {
-                fs.readFile(path.join(__dirname, data.filename), function (e, buf) {
-                    var basename = path.basename(data.filename), ext = path.extname(basename).slice(1);
-                    assert.ifError(e);
-                    data.buffer = buf;
-                    data.mime = 'image/' + ext;
-                    body.formData = {fileUpload: {value: buf, options: {filename: basename, contentType: data.mime}}};
-                    testBody();
-                });
-            } else {
-                body.json = data;
-                testBody();
-            }
         });
     }
     function cleanNametag(nametag) { return encodeURIComponent(nametag.toLowerCase()).replace(/%../g, '+'); }
@@ -204,7 +156,8 @@ describe('CanvasCat', function () {
                     assert.ok(member.$('img').is('img'));
                     done();
                 } else {
-                    request(base + member.$('img').attr('src'), function (e, res, body) {
+                    member.picture.url = member.$('img').attr('src'); // so that we can clean up later
+                    request(base + member.picture.url, function (e, res, body) {
                         assert.ifError(e);
                         var mime = res.headers['content-type'];
                         assert.equal(mime.slice(0, mime.indexOf('/')), 'image');
@@ -387,21 +340,28 @@ describe('CanvasCat', function () {
                 requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, auth1);
                 requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, auth1);
             });
-            confirmUpload('member update', base + user1.update, user1, 'test2.jpg', auth1);
+            confirmUpload('member update', base + user1.update, user1, 'test1.jpg', auth1);
         });
     });
 
     describe('cleanup', function () {
-        function deletes(path) {
-            var uri = base + path;
-            it('requires localhost for delete', function (done) {
+        function deletes(label, optionalPathGenerator) {
+            function uriGenerator() {
+                if (optionalPathGenerator) {
+                    return base + optionalPathGenerator();
+                }
+                return base + label;
+            }
+            it('requires localhost for delete ' + label, function (done) {
+                var uri = uriGenerator();
                 request({uri: uri.replace('localhost', '127.0.0.1'), method: 'DELETE'}, function (e, res) {
                     assert.ifError(e);
                     assert.equal(res.statusCode, 403, res.statusMessage);
                     done();
                 });
             });
-            it('deletes ' + path, function (done) {
+            it('deletes ' + label, function (done) {
+                var uri = uriGenerator();
                 request({uri: uri, method: 'DELETE'}, function (e, res, b) {
                     assert.ifError(e);
                     assert.equal(res.statusCode, 200, res.statusMessage);
@@ -417,5 +377,7 @@ describe('CanvasCat', function () {
         }
         deletes(user1.path);
         deletes(user2.path);
+        deletes('picture1', function () { return user1.picture.url; });
+        deletes('picture2', function () { return user2.picture.url; });
     });
 });
