@@ -10,9 +10,9 @@ var async = require('async');
 var request = require('request');
 var cheerio = require('cheerio');
 var _ = require('underscore');
-var testUserPass = process.env.TEST_USER_AUTH;
-if (!testUserPass) { throw new Error('Please specify TEST_USER_AUTH'); }
-var credentials = {user: 'howard', pass: testUserPass};
+
+// Testing always involves a bit of a trade-off between how much is defined parametrically for different cases,
+// vs being nearly repeated in the different cases. Our trade-off here is... evolving.
 
 describe('CanvasCat', function () {
     var port = 3000, base = 'http://localhost:' + port, ourServer; // the server we should talk to
@@ -86,47 +86,17 @@ describe('CanvasCat', function () {
         waitForChange(false, done);
     });
     page('/');
-    page('/art/howard.stearns/memetic+hazard.html', function (data) {
-        it('has title', function () {
-            data.$ = cheerio.load(data.body);
-            assert.equal(data.$('name').text(), 'Memetic Hazard 2');
-        });
-        it('has artist', function () {
-            assert.equal(data.$('artist').text(), 'Howard Stearns');
-        });
-        it('has description', function () {
-            assert.equal(data.$('description').text(), 'You tell me match 3');
-        });
-        it('has medium', function () {
-            assert.equal(data.$('medium').text(), 'digital');
-        });
-        it('has price', function () {
-            assert.equal(data.$('price').text(), 'x');
-        });
-        it('has dimensions', function () {
-            assert.equal(data.$('dimensions').text(), '2x4x∞');
-        });
-        it('has category', function () {
-            assert.equal(data.$('category').text(), 'abstract');
-        });
-        it('has image', function () {
-            assert.ok(data.$('img').is('img'));
-        });
-        it('has update', function () {
-            assert.ok(data.$('update a').is('a'));
-        });
-        it('has add-art', function () {
-            assert.ok(data.$('add-art a').is('a'));
-        });
-        it('has add-member', function () {
-            assert.ok(data.$('add-member a').is('a'));
-        });
-    });
-    function updatePaths(user) {
+    function updateMemberPaths(user) {
         var uname = cleanNametag(user.username);
         user.path = '/member/' + uname + '/profile.html';
         user.update = user.path.replace('member', 'update-member');
         user.newArt = '/update-art/' + uname + '/new.html';
+    }
+    function updateCompositionPaths(art, member) {
+        var name = cleanNametag(art.title);
+        art.path = member.path.replace('profile', name).replace('member', 'art');
+        art.update = art.path.replace('art', 'update-art');
+        art.newArt = art.update.replace(name, 'new');
     }
     var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
     var user2 = {title: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
@@ -137,8 +107,59 @@ describe('CanvasCat', function () {
     badUser1.username = user2.username;
     badUser2.username = user1.username;
     var newMember = '/update-member/new/profile.html';
-    updatePaths(user1);
-    updatePaths(user2);
+    var art1 = {title: 'test art 1', price: '100', dimensions: '10x20x1', medium: 'oil'};
+    var art2 = {title: 'test art 2', price: '1000', dimensions: '100x50x5', medium: 'mixed',
+                description: 'This is test art 1.', category: 'nude landscape'};
+    updateMemberPaths(user1);
+    updateMemberPaths(user2);
+    updateCompositionPaths(art1, user1);
+    updateCompositionPaths(art2, user1);
+    function uploadRequires(path, property, submittedData, optionalMessage, optionalCode, auth) {
+        it('requires ' + property, function (done) {
+            delete submittedData.$; // in case there's any cruft left
+            var data = {uri: base + path, method: 'POST', formData: submittedData};
+            if (auth) { data.auth = auth; }
+            request(data, function (e, res, body) {
+                assert.ifError(e);
+                assert.equal(res.statusCode, optionalCode || 400, res.statusMessage);
+                if (optionalMessage !== false) {
+                    var $ = cheerio.load(body);
+                    assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
+                }
+                done();
+            });
+        });
+    }
+    function confirmGenericUpload(confirmFunction, suiteName, route, object, imageFilename, auth) {
+        describe(suiteName, function () {
+            before(function (done) {
+                var filename = imageFilename, ext = path.extname(filename).slice(1), mime = 'image/' + ext;
+                fs.readFile(path.join(__dirname, imageFilename), function (e, buf) {
+                    object.picture = {value: buf, options: {filename: filename, contentType: mime}};
+                    done(e);
+                });
+            });
+            it('allows specified website, description, and picture', function (done) {
+                var options = {uri: route, method: 'POST', formData: object, followAllRedirects: true};
+                delete object.$; // if any. we don't want to upload that
+                if (auth) { options.auth = auth; }
+                request(options, function (e, res, body) {
+                    assert.ifError(e);
+                    assert.equal(res.statusCode, 200, res.statusMessage);
+                    object.$ = cheerio.load(body);
+                    done();
+                });
+            });
+            confirmFunction(object); // confirming result of upload
+            page(object.path, function (data) {
+                it('parses as html', function (done) {
+                    object.$ = cheerio.load(data.body);
+                    done();
+                });
+                confirmFunction(object); // confirming result of get
+            });
+        });
+    }
 
     describe('member', function () {
         function confirmMember(member) {
@@ -176,51 +197,8 @@ describe('CanvasCat', function () {
                 assert.equal(member.$('add-member a').attr('href'), newMember);
             });
         }
-
-        function uploadRequires(path, property, submittedData, optionalMessage, optionalCode, auth) {
-            it('requires ' + property, function (done) {
-                var data = {uri: base + path, method: 'POST', formData: submittedData};
-                if (auth) { data.auth = auth; }
-                request(data, function (e, res, body) {
-                    assert.ifError(e);
-                    assert.equal(res.statusCode, optionalCode || 400, res.statusMessage);
-                    if (optionalMessage !== false) {
-                        var $ = cheerio.load(body);
-                        assert.equal($('error').text(), optionalMessage || ('Missing required data: ' + property));
-                    }
-                    done();
-                });
-            });
-        }
         function confirmUpload(suiteName, route, user, imageFilename, auth) {
-            describe(suiteName, function () {
-                before(function (done) {
-                    var filename = imageFilename, ext = path.extname(filename).slice(1), mime = 'image/' + ext;
-                    fs.readFile(path.join(__dirname, imageFilename), function (e, buf) {
-                        user.picture = {value: buf, options: {filename: filename, contentType: mime}};
-                        done(e);
-                    });
-                });
-                it('allows specified website, description, and picture', function (done) {
-                    var options = {uri: route, method: 'POST', formData: user, followAllRedirects: true};
-                    delete user.$; // if any. we don't want to upload that
-                    if (auth) { options.auth = auth; }
-                    request(options, function (e, res, body) {
-                        assert.ifError(e);
-                        assert.equal(res.statusCode, 200, res.statusMessage);
-                        user.$ = cheerio.load(body);
-                        done();
-                    });
-                });
-                confirmMember(user); // confirming result of upload
-                page(user.path, function (data) {
-                    it('parses as html', function (done) {
-                        user.$ = cheerio.load(data.body);
-                        done();
-                    });
-                    confirmMember(user); // confirming result of get
-                });
-            });
+            confirmGenericUpload(confirmMember, suiteName, route, user, imageFilename, auth);
         }
         describe('creation', function () {
             describe('upload form', function () {
@@ -272,12 +250,14 @@ describe('CanvasCat', function () {
                     });
                 });
                 confirmMember(user1);
-                page(user1.path, function (data) {
-                    it('parses as html', function (done) {
-                        user1.$ = cheerio.load(data.body);
-                        done();
+                describe('result', function () {
+                    page(user1.path, function (data) {
+                        it('parses as html', function (done) {
+                            user1.$ = cheerio.load(data.body);
+                            done();
+                        });
+                        confirmMember(user1);
                     });
-                    confirmMember(user1);
                 });
                 requires('unique username', badUser2, 'Username ' + user1.username + ' is already in use.', 409);
             });
@@ -344,6 +324,186 @@ describe('CanvasCat', function () {
         });
     });
 
+    describe('composition', function () {
+        function confirmComposition(composition) {
+            it('has correct title', function () {
+                assert.equal(composition.$('name').text(), composition.title);
+            });
+            it('has correct description', function () {
+                assert.equal(composition.$('description').text(), composition.description || '');
+            });
+            it('has image', function (done) {
+                if (!composition.picture) {
+                    assert.ok(composition.$('img').is('img'));
+                    done();
+                } else {
+                    composition.picture.url = composition.$('img').attr('src'); // so that we can clean up later
+                    request(base + composition.picture.url, function (e, res, body) {
+                        assert.ifError(e);
+                        var mime = res.headers['content-type'];
+                        assert.equal(mime.slice(0, mime.indexOf('/')), 'image');
+                        assert.equal(body, composition.picture.value);
+                        done();
+                    });
+                }
+            });
+            it('has correct update', function () {
+                assert.equal(composition.$('update a').attr('href'), composition.update);
+            });
+            it('has correct add-art', function () {
+                assert.equal(composition.$('add-art a').attr('href'), composition.newArt);
+            });
+            it('has correct add-composition', function () {
+                assert.equal(composition.$('add-member a').attr('href'), newMember);
+            });
+        }
+        function confirmUpload(suiteName, route, user, imageFilename, auth) {
+            confirmGenericUpload(confirmComposition, suiteName, route, user, imageFilename, auth);
+        }
+        describe('creation', function () {
+            describe('upload form', function () {
+                var $;
+                function check(selector, propertyName) {
+                    var element = $(selector);
+                    assert.equal(element.attr('name'), propertyName);
+                }
+                it('requires authentication', function (done) {
+                    request(base + user1.newArt, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 401, res.statusMessage);
+                        done();
+                    });
+                });
+                it('requires authorization for same user', function (done) {
+                    request({uri: base + user1.newArt, auth: auth2}, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 403, res.statusMessage);
+                        done();
+                    });
+                });
+                page(user1.newArt, function (data) {
+                    it('form has name', function () {
+                        $ = cheerio.load(data.body);
+                        check('form name input', 'title');
+                    });
+                    it('has description', function () {
+                        check('form description input', 'description');
+                    });
+                    it('has price', function () {
+                        check('form price input', 'price');
+                    });
+                    it('has dimensions', function () {
+                        check('form dimensions input', 'dimensions');
+                    });
+                    it('has medium', function () {
+                        check('form medium input', 'medium');
+                    });
+                    it('has category', function () {
+                        check('form category input', 'category');
+                    });
+                    it('has picture', function () {
+                        check('form picture input', 'picture');
+                    });
+                }, auth1);
+            });
+            function requires(property, submittedData, optionalMessage, optionalCode, optionalAuth) {
+                uploadRequires(user1.newArt, property, submittedData, optionalMessage, optionalCode, (optionalAuth === null) ? undefined : (optionalAuth ||  auth1));
+            }
+            describe('server checks', function () {
+                requires('authentication', {}, false, 401, null);
+                requires('authorized user', {}, false, 403, auth2);
+                requires('title', {});
+                requires('price', {title: 't'});
+                requires('dimensions', {title: 't', price: '100'});
+                requires('medium', {title: 't', price: '100', dimensions: '1x2x3'});
+            });
+
+            describe('initial composition upload', function () {
+                it('allows missing description, and category', function (done) {
+                    request({uri: base + user1.newArt, method: 'POST', formData: art1, followAllRedirects: true, auth: auth1}, function (e, res, body) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 200, res.statusMessage);
+                        art1.$ = cheerio.load(body);
+                        done();
+                    });
+                });
+                confirmComposition(art1);
+                describe('result', function () {
+                    page(art1.path, function (data) {
+                        it('parses as html', function (done) {
+                            art1.$ = cheerio.load(data.body);
+                            done();
+                        });
+                        confirmComposition(art1);
+                    });
+                });
+                requires('unique title', art1, 'Composition nametag ' + cleanNametag(art1.title) + ' is already in use.', 409, auth1);
+            });
+            confirmUpload('second initial composition upload', base + user1.newArt, art2, 'test2.jpg', auth1);
+        });
+
+        describe('update', function () {
+            describe('form', function () {
+                it('requires authentication', function (done) {
+                    request(base + art1.update, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 401, res.statusMessage);
+                        done();
+                    });
+                });
+                it('requires authorization for same user', function (done) {
+                    request({uri: base + art1.update, auth: auth2}, function (e, res) {
+                        assert.ifError(e);
+                        assert.equal(res.statusCode, 403, res.statusMessage);
+                        done();
+                    });
+                });
+                page(art1.update, function (data) {
+                    var $;
+                    function check(selector, propertyName, enforceNoValue) {
+                        var element = $(selector);
+                        assert.equal(element.attr('name'), propertyName);
+                        assert.equal(element.attr('value'), enforceNoValue ? undefined : art1[propertyName]);
+                    }
+                    it('has name', function () {
+                        $ = cheerio.load(data.body);
+                        check('form name input', 'title');
+                    });
+                    it('has description', function () {
+                        check('form description input', 'description');
+                    });
+                    it('has price', function () {
+                        check('form price input', 'price');
+                    });
+                    it('has dimensions', function () {
+                        check('form dimensions input', 'dimensions');
+                    });
+                    it('has medium', function () {
+                        check('form medium input', 'medium');
+                    });
+                    it.skip('has category', function () {
+                        check('form category input', 'category');
+                    });
+                    it('has picture', function () {
+                        check('form picture input', 'picture');
+                    });
+                }, auth1);
+            });
+            function requires(property, submittedData, optionalMessage, optionalCode, auth) {
+                uploadRequires(art1.update, property, submittedData, optionalMessage, optionalCode, auth);
+            }
+            describe('server checks', function () {
+                requires('authentication', {}, false, 401, null);
+                requires('authorized user', {}, false, 403, auth2);
+                requires('title', {title: ''}, undefined, undefined, auth1);
+                requires('price', {title: 't', price: ''}, undefined, undefined, auth1);
+                requires('dimensions', {title: 't', price: '100', dimensions: ''}, undefined, undefined, auth1);
+                requires('medium', {title: 't', price: '100', dimensions: '1x2x3', medium: ''}, undefined, undefined, auth1);
+            });
+            confirmUpload('composition update', base + art1.update, art1, 'test1.jpg', auth1);
+        });
+    });
+
     describe('cleanup', function () {
         function deletes(label, optionalPathGenerator) {
             function uriGenerator() {
@@ -375,6 +535,8 @@ describe('CanvasCat', function () {
                 });
             });
         }
+        deletes(art1.path);
+        deletes(art2.path);
         deletes(user1.path);
         deletes(user2.path);
         deletes('picture1', function () { return user1.picture.url; });

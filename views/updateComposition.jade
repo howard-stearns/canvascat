@@ -9,7 +9,7 @@ block content
     description
       input(type="text", name="description", value=description, placeholder="artist statement or description")
     price
-      input(type="text", required, name="price", value=price, placeholder="price in US dollars")
+      input(type="number", required, name="price", value=price, placeholder="price in US dollars", min=10, step=1)
     dimensions
       input(type="text", required, name="dimensions", value=dimensions, placeholder="width x height x depth, in inches.")
     medium

@@ -307,6 +307,21 @@ router.get('/update-member/:username/profile.html', authenticate, authorizeForRe
     res.render('updateMember', req.user);
 });
 
+function missingProperties(requiredProperties, data, cb) { // true if any missing and cb(err, {}, {}) was used, else false
+    // requiredProperties should be written with the most important ones last.
+    // Passes {} as tertiary arg to cb for compatability with how update writerFunction is used.
+    //
+    // Design choice: we check the combined data, not just the newData. No difference when going through a
+    // a Web page form with default values, checking the combined data is more accepting as an API.
+    var missing; // Pun: we catch both '' and undefined.
+    requiredProperties.forEach(function (name) { if (!data[name]) { missing = name; } });
+    if (missing) {
+        // Won't happen through our form, but someone could send bad data directly.
+        cb(badRequest("Missing required data: " + missing), {}, {});
+        return true;
+    }
+}
+
 var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
 var MAX_NAME_CHANGES = 50;
 // Normalize and merge into existing data, keeping everything consistent and verified (e.g., username nametags in store).
@@ -341,14 +356,7 @@ function updateMember(req, res, next) {
     var password = newData.password;
     if (password !== newData.repeatPassword) { return finish(badRequest("Passwords do not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
-    // Design choice: we check the combined data, not just the newData. No difference when going through a
-    // a Web page form with default values, checking the combined data is more accepting as an API.
-    var missing; // Pun: we catch both '' and undefined.
-    ['passwordHash', 'email', 'username', 'title'].forEach(function (name) { if (!data[name]) { missing = name; } });
-    if (missing) {
-        // Won't happen through our form, but someone could send bad data directly.
-        return finish(badRequest("Missing required data: " + missing));
-    }
+    if (missingProperties(['passwordHash', 'email', 'username', 'title'], data, finish)) { return; }
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
     if (oldUsername) {
@@ -376,6 +384,13 @@ function updateMember(req, res, next) {
 // Two different routes because the authentication is different for a new profile vs changing an existing profile.
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
+
+
+/* FIXME:
+remove unwanted form data
+don't add failed composition creations to user
+fixme that these don't have a way to test
+*/
 
 //////////////////
 // COMPOSITIONS
@@ -423,6 +438,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
             copyStringProperties(['title', 'description', 'price', 'dimensions', 'medium'], req.body, data);
             nametag = data.nametag = readablyEncode(data.title);
             if (req.body.category) { data.category = req.body.category.split(' '); } // FIXME harden this
+            if (missingProperties(['medium', 'dimensions', 'price', 'title'], data, writerFunction)) { return; }
             if (newComposition) { data.created = Date.now(); }
             if (oldNametag === data.nametag) {
                 return handlePictureUpload(req.file, data, writerFunction);
@@ -494,6 +510,16 @@ router.delete('/member/:username/profile.html', deleteAuth, function (req, res, 
         async.each((_.values(data.oldUsernames || {})).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
             if (error) { console.log('nametag cleanup', error); } // log it and move on
             store.destroyCollection(memberCollectionname(idtag), makeOpHandler(res, next));
+        });
+    });
+});
+router.delete('/art/:username/:nametag.html', deleteAuth, function (req, res, next) {
+    getMember(req.params.username, function (error, data, memberIdtag) {
+        ignore(data);
+        if (error) { return next(error); } // Cannot go further
+        resolveCompositionName(memberIdtag, req.params.nametag, function (error, idtag) {
+            if (error) { return next(error); }
+            store.destroy(compositionIdtag2Docname(idtag), makeOpHandler(res, next));
         });
     });
 });
