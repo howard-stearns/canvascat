@@ -104,10 +104,28 @@ function ensureMemberCollections(idtag, cb) {
         store.ensureCollection(memberCompositionsCollectionname(idtag), cb);
     });
 }
-// ensure that collection/nametag points to idtag and call cb(error),
+var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
+var MAX_NAME_CHANGES = 50;
+// Ensure that collection/nametag points to idtag and call cb(error),
 // where the pre-existence of collection/nametag pointing to a different idtag is an error.
-function ensureUniqueNametag(collection, nametag, idtag, label, cb) {
+// Side-effects data with info about oldNametag.
+function ensureUniqueNametag(collection, nametag, idtag, oldNametag, data, label, cb) {
     var document = docname(collection, nametag);
+    if (oldNametag) {
+        var now = Date.now();
+        // data.oldNametags is a map of timestamp => oldUsername, giving us a history of which (possibly repeated) name
+        // was used when. Here we store the data, and also check that the last change was not too recent.
+        // We currently only make use of the last timestamp and, for deletion, the set of names.
+        if (data.oldNametags) {
+            var changes = Object.keys(data.oldNametags);
+            if ((changes.length > MAX_NAME_CHANGES) || ((now - parseInt(_.last(changes), 10)) < MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES)) {
+                return cb(tooMany("Too many username changes."));
+            }
+        } else {
+            data.oldNametags = {};
+        }
+        data.oldNametags[now] = oldNametag;
+    }
     store.get(document, function (error, existing) {
         if (existing === idtag) { return cb(); }
         if (existing) { error = conflict(label + " " + nametag + " is already in use."); }
@@ -312,8 +330,6 @@ function missingProperties(requiredProperties, data, cb) { // true if any missin
     }
 }
 
-var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
-var MAX_NAME_CHANGES = 50;
 // Normalize and merge into existing data, keeping everything consistent and verified (e.g., username nametags in store).
 function updateMember(req, res, next) {
     ignore(next);
@@ -333,6 +349,8 @@ function updateMember(req, res, next) {
         res.redirect('/member/' + data.username + '/profile.html');
     }
     function update(error) {
+        // Questionable design choice: Any errors at this point are system errors, not client errors, and so we don't
+        // expect them to happen in normal operation, and we do not clean up media or nametags already in position.
         if (error) { return finish(error); }
         handlePictureUpload(req.file, data, function (error) {
             if (error) { return finish(error); }
@@ -349,22 +367,7 @@ function updateMember(req, res, next) {
     if (missingProperties(['passwordHash', 'email', 'username', 'title'], data, finish)) { return; }
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
-    if (oldUsername) {
-        var now = Date.now();
-        // data.oldUsernames is a map of timestamp => oldUsername, giving us a history of which (possibly repeated) name
-        // was used when. Here we store the data, and also check that the last change was not too recent.
-        // We currently only make use of the last timestamp and, for deletion, the set of names.
-        if (data.oldUsernames) {
-            var changes = Object.keys(data.oldUsernames);
-            if ((changes.length > MAX_NAME_CHANGES) || ((now - parseInt(_.last(changes), 10)) < MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES)) {
-                return finish(tooMany("Too many username changes."));
-            }
-        } else {
-            data.oldUsernames = {};
-        }
-        data.oldUsernames[now] = oldUsername;
-    }
-    ensureUniqueNametag(memberNametags, data.username, idtag, 'Username', function (error) {
+    ensureUniqueNametag(memberNametags, data.username, idtag, oldUsername, data, 'Username', function (error) {
         if (error) { return finish(error); }
         if (oldUsername) { return update(); }
         data.created = Date.now();
@@ -430,9 +433,8 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
             if (oldNametag === data.nametag) {
                 return handlePictureUpload(req.file, data, writerFunction);
             }
-            ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, 'Composition nametag', function (error) {
+            ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, oldNametag, data, 'Composition nametag', function (error) {
                 if (error) { return writerFunction(error, data, data); }
-                propertyPush(data, 'oldNametags', oldNametag, true); // keep track of old so that we can clean up when deleting composition
                 handlePictureUpload(req.file, data, writerFunction);
             });
         }
@@ -506,6 +508,9 @@ router.delete('/art/:username/:nametag.html', deleteAuth, function (req, res, ne
         if (error) { return next(error); } // Cannot go further
         resolveCompositionName(memberIdtag, req.params.nametag, function (error, idtag) {
             if (error) { return next(error); }
+            // No need to destroy old nametags as they are part of the member collection, which we destroy separately.
+            // If we decide to allow deleting compositions without deleting the member, we would need to fix that,
+            // and also update the artist and buyer data.
             store.destroy(compositionIdtag2Docname(idtag), makeOpHandler(res, next));
         });
     });
