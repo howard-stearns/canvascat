@@ -119,25 +119,24 @@ function ensureUniqueNametag(collection, nametag, idtag, label, cb) {
 function resolveUsername(username, cb) { // cb(error, memberIdtag)
     store.get(memberNametag2Docname(username), cb);
 }
-function expandMember(idtag, cb) {
-    store.get(memberIdtag2Docname(idtag), function (error, member) {
-        if (error) { return cb(error); }
-        member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
-        member.url  = '/member/' + member.username + '/profile.html';
-        member.updateUrl = '/update-member/' + member.username + '/profile.html';
-        member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
-        if (!member.firstname && !member.lastname) {
-            var split = member.title.split(' ');
-            member.firstname = split[0];
-            member.lastname = split.slice(1).join(' ');
-        }
-        cb(null, member, idtag);
-    });
+function expandMember(member) { // side-effects member with more data used by templates
+    member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
+    member.url  = '/member/' + member.username + '/profile.html';
+    member.updateUrl = '/update-member/' + member.username + '/profile.html';
+    member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
+    if (!member.firstname && !member.lastname) {
+        var split = member.title.split(' ');
+        member.firstname = split[0];
+        member.lastname = split.slice(1).join(' ');
+    }
+    return member;
 }
 function getMember(username, cb) { // cb(error, memberData, memberIdtag)
     resolveUsername(username, function (error, idtag) {
         if (error) { return cb(error); }
-        expandMember(idtag, cb);
+        store.get(memberIdtag2Docname(idtag), function (error, member) {
+            cb(error, member, idtag);
+        });
     });
 }
 function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(error, compositionIdtag)
@@ -146,6 +145,7 @@ function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(erro
 function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
     resolveCompositionName(memberIdtag, compositionNametag, function (error, idtag) {
         if (error) { return cb(error); }
+        expandMember(member);
         store.getWithModificationTime(compositionIdtag2Docname(idtag), function (error, composition, modtime) {
             if (error) { return cb(error); }
             composition.pictureUrl = mediaUrl(composition.picture);
@@ -155,7 +155,7 @@ function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // 
             composition.artist = member;
             composition.modified = modtime.getTime();
             if (composition.buyer) {
-                expandMember(composition.buyer, function (error, buyer) {
+                getMember(composition.buyer, function (error, buyer) {
                     composition.buyer = buyer;
                     cb(error, composition, idtag);
                 });
@@ -165,13 +165,6 @@ function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // 
         });
     });
 }
-function getUsernameComposition(username, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
-    getMember(username, function (error, member, memberIdtag) {
-        if (error) { return cb(error); }
-        getMemberComposition(member, memberIdtag, compositionNametag, cb);
-    });
-}
-
 function normalize(string) {
     // Normalize the data so that searches match.
     // Decompose combined unicode characters into compatible individual marks, so that we can strip them in searches.
@@ -288,14 +281,11 @@ router.use('/media', express.static(media));
 //////////////////
 // MEMBER PROFILE
 //////////////////
-function renderMember(username, view, res, next) {
-    getMember(username, function (error, data) {
-        if (error) { return next(error); }
-        res.render(view, data);
-    });
-}
 router.get('/member/:username/profile.html', function (req, res, next) {
-    renderMember(req.params.username, 'member', res, next);
+    getMember(req.params.username, function (error, data) {
+        if (error) { return next(error); }
+        res.render('member', expandMember(data));
+    });
 });
 router.get('/update-member/new/profile.html', rateLimit, function (req, res, next) {
     ignore(req, next);
@@ -386,20 +376,17 @@ router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, upda
 router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
 
 
-/* FIXME:
-remove unwanted form data
-don't add failed composition creations to user
-fixme that these don't have a way to test
-*/
-
 //////////////////
 // COMPOSITIONS
 //////////////////
 
 router.get('/art/:username/:compositionNametag.html', function (req, res, next) {
-    getUsernameComposition(req.params.username, req.params.compositionNametag, function (error, data) {
+    getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
-        res.render('composition', data);
+        getMemberComposition(member, memberIdtag, req.params.compositionNametag, function (error, composition) {
+            if (error) { return next(error); }
+            res.render('composition', composition);
+        });
     });
 });
 
