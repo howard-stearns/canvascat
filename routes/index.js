@@ -68,7 +68,7 @@ function compositionIdtag2Docname(idtag) {
     return docname(compositions, idtag + '.json');
 }
 function readablyEncode(nfkdString) { // Encode safely for a url, as readable as practical.
-    var string = (nfkdString || '').toLowerCase();
+    var string = (nfkdString || '').replace(/[\u0300-\u036f]/g, '').toLowerCase(); // remove diacriticals
     return encodeURIComponent(string).replace(/%../g, '+');
 }
 function mediaUrl(idtag) { // The file extension is already part of the idtag.
@@ -266,8 +266,14 @@ passport.use(new BasicStrategy(function (username, password, done) {
 // This route is is used in the route to determine whether the given authenticated user is authorized for the next step in the route.
 var authenticate = passport.authenticate('basic', {session: false});
 function authorizeForRequest(req, res, next) {
+    var i, user = req.user, username = req.params.username;
     ignore(res);
-    if (req.user.username === req.params.username) { return next(); }
+    if (user.username === username) { return next(); }
+    if (user.oldNametags) {
+        for (i in user.oldNametags) {
+            if (user.oldNametags[i] === username) { return next(); }
+        }
+    }
     return next(forbidden("Unauthorized " + req.user.username + " for " + req.params.username));
 }
 function rateLimit(req, res, next) {
@@ -496,7 +502,9 @@ function makeOpHandler(res, next) { // answer handler that will send 'ok' or giv
 router.delete('/member/:username/profile.html', deleteAuth, function (req, res, next) {
     getMember(req.params.username, function (error, data, idtag) {
         if (error) { return next(error); } // Cannot go further
-        async.each((_.values(data.oldUsernames || {})).concat(data.username).map(memberNametag2Docname), store.destroy, function (error) {
+        var nametags = (_.values(data.oldNametags || {})).concat(data.username);
+        var docs = nametags.map(memberNametag2Docname);
+        async.each(docs, store.destroy, function (error) {
             if (error) { console.log('nametag cleanup', error); } // log it and move on
             store.destroyCollection(memberCollectionname(idtag), makeOpHandler(res, next));
         });

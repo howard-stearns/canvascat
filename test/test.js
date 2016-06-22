@@ -104,7 +104,7 @@ describe('CanvasCat', function () {
     var auth1 = {user: cleanNametag(user1.username), pass: user1.password};
     var auth2 = {user: cleanNametag(user2.username), pass: user2.password};
     var badUser1 = JSON.parse(JSON.stringify(user1)), badUser2 = JSON.parse(JSON.stringify(user2));
-    badUser1.username = user2.username;
+    badUser1.username = user2.username.replace(/ /g, '+'); // which "cleans" to the same thing;
     badUser2.username = user1.username;
     var newMember = '/update-member/new/profile.html';
     var art1 = {title: 'test art 1', price: '100', dimensions: '10x20x1', medium: 'oil'};
@@ -130,10 +130,12 @@ describe('CanvasCat', function () {
             });
         });
     }
-    function confirmGenericUpload(confirmFunction, suiteName, route, object, imageFilename, auth) {
+    function confirmGenericUpload(confirmFunction, suiteName, route, object, imageFilename, auth, newData, updater) {
         describe(suiteName, function () {
             before(function (done) {
                 var filename = imageFilename, ext = path.extname(filename).slice(1), mime = 'image/' + ext;
+                if (newData) { _.extend(object, newData); }
+                if (updater) { updater(object); }
                 fs.readFile(path.join(__dirname, imageFilename), function (e, buf) {
                     object.picture = {value: buf, options: {filename: filename, contentType: mime}};
                     done(e);
@@ -197,8 +199,8 @@ describe('CanvasCat', function () {
                 assert.equal(member.$('add-member a').attr('href'), newMember);
             });
         }
-        function confirmUpload(suiteName, route, user, imageFilename, auth) {
-            confirmGenericUpload(confirmMember, suiteName, route, user, imageFilename, auth);
+        function confirmUpload(suiteName, route, user, imageFilename, auth, newData, updater) {
+            confirmGenericUpload(confirmMember, suiteName, route, user, imageFilename, auth, newData, updater);
         }
         describe('creation', function () {
             describe('upload form', function () {
@@ -320,7 +322,7 @@ describe('CanvasCat', function () {
                 requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, auth1);
                 requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, auth1);
             });
-            confirmUpload('member update', base + user1.update, user1, 'test1.jpg', auth1);
+            confirmUpload('member update', base + user1.update, user1, 'test1.jpg', auth1, {username: 'test user 1'}, updateMemberPaths);
         });
     });
 
@@ -368,6 +370,8 @@ describe('CanvasCat', function () {
                     assert.equal(element.attr('name'), propertyName);
                 }
                 it('requires authentication', function (done) {
+                    updateCompositionPaths(art1, user1); // Becuase the member tests can change the data from the static values
+                    updateCompositionPaths(art2, user1);
                     request(base + user1.newArt, function (e, res) {
                         assert.ifError(e);
                         assert.equal(res.statusCode, 401, res.statusMessage);
