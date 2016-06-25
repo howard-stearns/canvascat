@@ -503,6 +503,7 @@ describe('CanvasCat', function () {
                 requires('price', {title: 't', price: ''}, undefined, undefined, auth1);
                 requires('dimensions', {title: 't', price: '100', dimensions: ''}, undefined, undefined, auth1);
                 requires('medium', {title: 't', price: '100', dimensions: '1x2x3', medium: ''}, undefined, undefined, auth1);
+                requires('unique title', art2, 'Composition nametag ' + cleanNametag(art2.title) + ' is already in use.', 409, auth1);
             });
             confirmUpload('composition update', base + art1.update, art1, 'test1.jpg', auth1);
         });
