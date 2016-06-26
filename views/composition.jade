@@ -2,9 +2,9 @@ extends item
 
 block content
   composition
-    name= title
+    name= name
     artist
-      a(href=artist.url)= artist.title
+      a(href=artist.url)= artist.name
     picture
       img(src=pictureUrl)
     description= description
@@ -12,7 +12,7 @@ block content
     price= price
     if buyer
       buyer
-        a(href=buyer.url)= buyer.title
+        a(href=buyer.url)= buyer.name
     dimensions= dimensions
     category= category
     update

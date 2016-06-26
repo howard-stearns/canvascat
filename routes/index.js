@@ -143,7 +143,7 @@ function expandMember(member) { // side-effects member with more data used by te
     member.updateUrl = '/update-member/' + member.username + '/profile.html';
     member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
     if (!member.firstname && !member.lastname) {
-        var split = member.title.split(' ');
+        var split = member.name.split(' ');
         member.firstname = split[0];
         member.lastname = split.slice(1).join(' ');
     }
@@ -370,12 +370,12 @@ function updateMember(req, res, next) {
         });
     }
     // Merge in the data. Tests below depend on the data being normalized (e.g., empty space trimmed out).
-    copyStringProperties(['title', 'description', 'website', 'email', 'username'], newData, data);
+    copyStringProperties(['name', 'description', 'website', 'email', 'username'], newData, data);
     data.username = readablyEncode(data.username);
     var password = newData.password;
     if (password !== newData.repeatPassword) { return finish(badRequest("Passwords do not match.")); }
     if (password) { data.passwordHash = passwordHash(password, idtag); }
-    if (missingProperties(['passwordHash', 'email', 'username', 'title'], data, finish)) { return; }
+    if (missingProperties(['passwordHash', 'email', 'username', 'name'], data, finish)) { return; }
     if (data.username === oldUsername) { return update(); }
     // All the rest makes sure the new username is available.
     ensureUniqueNametag(memberNametags, data.username, idtag, oldUsername, data, 'Username', function (error) {
@@ -448,10 +448,10 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
                 return writerFunction(unknown(member.username + " " + nametag), data, data);
             }
             var oldNametag = data.nametag;
-            copyStringProperties(['title', 'description', 'price', 'dimensions', 'medium'], req.body, data);
-            nametag = data.nametag = readablyEncode(data.title);
+            copyStringProperties(['name', 'description', 'price', 'dimensions', 'medium'], req.body, data);
+            nametag = data.nametag = readablyEncode(data.name);
             if (req.body.category) { data.category = req.body.category.split(' '); } // FIXME harden this
-            if (missingProperties(['medium', 'dimensions', 'price', 'title'], data, writerFunction)) { return; }
+            if (missingProperties(['medium', 'dimensions', 'price', 'name'], data, writerFunction)) { return; }
             if (newComposition) { data.created = Date.now(); }
             if (oldNametag === data.nametag) {
                 return handlePictureUpload(req.file, data, finish);

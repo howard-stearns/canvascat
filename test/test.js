@@ -93,13 +93,13 @@ describe('CanvasCat', function () {
         user.newArt = '/update-art/' + uname + '/new.html';
     }
     function updateCompositionPaths(art, member) {
-        var name = cleanNametag(art.title);
+        var name = cleanNametag(art.name);
         art.path = member.path.replace('profile', name).replace('member', 'art');
         art.update = art.path.replace('art', 'update-art');
         art.newArt = art.update.replace(name, 'new');
     }
-    var user1 = {title: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
-    var user2 = {title: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
+    var user1 = {name: 'testuser 1', username: 'testuser1', email: 'test1@canvascat.com', password: 'foo', repeatPassword: 'foo'};
+    var user2 = {name: 'testuser 2', username: 'test user 2', email: 'test2@canvascat.com', password: 'bar', repeatPassword: 'bar',
                  website: 'http://canvascat.com', description: 'This is a test user.'};
     var auth1 = {user: cleanNametag(user1.username), pass: user1.password};
     var auth2 = {user: cleanNametag(user2.username), pass: user2.password};
@@ -107,8 +107,8 @@ describe('CanvasCat', function () {
     badUser1.username = user2.username.replace(/ /g, '+'); // which "cleans" to the same thing;
     badUser2.username = user1.username;
     var newMember = '/update-member/new/profile.html';
-    var art1 = {title: 'test art 1', price: '100', dimensions: '10x20x1', medium: 'oil'};
-    var art2 = {title: 'test art 2', price: '1000', dimensions: '100x50x5', medium: 'mixed',
+    var art1 = {name: 'test art 1', price: '100', dimensions: '10x20x1', medium: 'oil'};
+    var art2 = {name: 'test art 2', price: '1000', dimensions: '100x50x5', medium: 'mixed',
                 description: 'This is test art 1.', category: 'nude landscape'};
     updateMemberPaths(user1);
     updateMemberPaths(user2);
@@ -165,8 +165,8 @@ describe('CanvasCat', function () {
 
     describe('member', function () {
         function confirmMember(member) {
-            it('has correct title', function () {
-                assert.equal(member.$('name').text(), member.title);
+            it('has correct name', function () {
+                assert.equal(member.$('name').text(), member.name);
             });
             it('has correct website', function () {
                 assert.equal(member.$('website').text(), member.website || '');
@@ -212,7 +212,7 @@ describe('CanvasCat', function () {
                 page(newMember, function (data) {
                     it('form has name', function () {
                         $ = cheerio.load(data.body);
-                        check('form name input', 'title');
+                        check('form name input', 'name');
                     });
                     it('has website', function () {
                         check('form website input', 'website');
@@ -235,11 +235,11 @@ describe('CanvasCat', function () {
                 uploadRequires(newMember, property, submittedData, optionalMessage, optionalCode);
             }
             describe('server checks', function () {
-                requires('title', {});
-                requires('username', {title: 't'});
-                requires('email', {title: 't', username: 'u'});
-                requires('passwordHash', {title: 't', username: 'u', email: 'e'});
-                requires('matching password', {title: 't', username: 'u', email: 'e', password: 'foo'}, 'Passwords do not match.');
+                requires('name', {});
+                requires('username', {name: 't'});
+                requires('email', {name: 't', username: 'u'});
+                requires('passwordHash', {name: 't', username: 'u', email: 'e'});
+                requires('matching password', {name: 't', username: 'u', email: 'e', password: 'foo'}, 'Passwords do not match.');
             });
 
             describe('initial member upload', function () {
@@ -291,7 +291,7 @@ describe('CanvasCat', function () {
                     }
                     it('has name', function () {
                         $ = cheerio.load(data.body);
-                        check('form name input', 'title');
+                        check('form name input', 'name');
                     });
                     it('has website', function () {
                         check('form website input', 'website');
@@ -316,10 +316,10 @@ describe('CanvasCat', function () {
             describe('server checks', function () {
                 requires('authentication', {}, false, 401);
                 requires('authorized user', {}, false, 403, auth2);
-                requires('title', {title: ''}, undefined, undefined, auth1);
-                requires('username', {title: 't', username: ''}, undefined, undefined, auth1);
-                requires('email', {title: 't', username: 'u', email: ''}, undefined, undefined, auth1);
-                requires('matching password', {title: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, auth1);
+                requires('name', {name: ''}, undefined, undefined, auth1);
+                requires('username', {name: 't', username: ''}, undefined, undefined, auth1);
+                requires('email', {name: 't', username: 'u', email: ''}, undefined, undefined, auth1);
+                requires('matching password', {name: 't', username: 'u', email: 'e', repeatPassword: 'foo'}, 'Passwords do not match.', undefined, auth1);
                 requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, auth1);
             });
             confirmUpload('member update', base + user1.update, user1, 'test1.jpg', auth1, {username: 'test user 1'}, updateMemberPaths);
@@ -328,8 +328,8 @@ describe('CanvasCat', function () {
 
     describe('composition', function () {
         function confirmComposition(composition) {
-            it('has correct title', function () {
-                assert.equal(composition.$('name').text(), composition.title);
+            it('has correct name', function () {
+                assert.equal(composition.$('name').text(), composition.name);
             });
             it('has correct description', function () {
                 assert.equal(composition.$('description').text(), composition.description || '');
@@ -388,7 +388,7 @@ describe('CanvasCat', function () {
                 page(user1.newArt, function (data) {
                     it('form has name', function () {
                         $ = cheerio.load(data.body);
-                        check('form name input', 'title');
+                        check('form name input', 'name');
                     });
                     it('has description', function () {
                         check('form description input', 'description');
@@ -416,10 +416,10 @@ describe('CanvasCat', function () {
             describe('server checks', function () {
                 requires('authentication', {}, false, 401, null);
                 requires('authorized user', {}, false, 403, auth2);
-                requires('title', {});
-                requires('price', {title: 't'});
-                requires('dimensions', {title: 't', price: '100'});
-                requires('medium', {title: 't', price: '100', dimensions: '1x2x3'});
+                requires('name', {});
+                requires('price', {name: 't'});
+                requires('dimensions', {name: 't', price: '100'});
+                requires('medium', {name: 't', price: '100', dimensions: '1x2x3'});
             });
 
             describe('initial composition upload', function () {
@@ -441,7 +441,7 @@ describe('CanvasCat', function () {
                         confirmComposition(art1);
                     });
                 });
-                requires('unique title', art1, 'Composition nametag ' + cleanNametag(art1.title) + ' is already in use.', 409, auth1);
+                requires('unique name', art1, 'Composition nametag ' + cleanNametag(art1.name) + ' is already in use.', 409, auth1);
             });
             confirmUpload('second initial composition upload', base + user1.newArt, art2, 'test2.jpg', auth1);
         });
@@ -471,7 +471,7 @@ describe('CanvasCat', function () {
                     }
                     it('has name', function () {
                         $ = cheerio.load(data.body);
-                        check('form name input', 'title');
+                        check('form name input', 'name');
                     });
                     it('has description', function () {
                         check('form description input', 'description');
@@ -499,14 +499,14 @@ describe('CanvasCat', function () {
             describe('server checks', function () {
                 requires('authentication', {}, false, 401, null);
                 requires('authorized user', {}, false, 403, auth2);
-                requires('title', {title: ''}, undefined, undefined, auth1);
-                requires('price', {title: 't', price: ''}, undefined, undefined, auth1);
-                requires('dimensions', {title: 't', price: '100', dimensions: ''}, undefined, undefined, auth1);
-                requires('medium', {title: 't', price: '100', dimensions: '1x2x3', medium: ''}, undefined, undefined, auth1);
-                requires('unique title', art2, 'Composition nametag ' + cleanNametag(art2.title) + ' is already in use.', 409, auth1);
+                requires('name', {name: ''}, undefined, undefined, auth1);
+                requires('price', {name: 't', price: ''}, undefined, undefined, auth1);
+                requires('dimensions', {name: 't', price: '100', dimensions: ''}, undefined, undefined, auth1);
+                requires('medium', {name: 't', price: '100', dimensions: '1x2x3', medium: ''}, undefined, undefined, auth1);
+                requires('unique name', art2, 'Composition nametag ' + cleanNametag(art2.name) + ' is already in use.', 409, auth1);
             });
             confirmUpload('composition update', base + art1.update, art1, 'test1.jpg', auth1,
-                          {title: 'art 1', price: '200'}, function (data) { updateCompositionPaths(data, user1); });
+                          {name: 'art 1', price: '200'}, function (data) { updateCompositionPaths(data, user1); });
         });
     });
 

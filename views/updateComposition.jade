@@ -5,7 +5,7 @@ block content
     if error
       error= error
     name
-      input(type="text", required, name="title", value=title, placeholder="Composition title must be unique among your compositions.")
+      input(type="text", required, name="name", value=name, placeholder="Composition title must be unique among your compositions.")
     description
       input(type="text", name="description", value=description, placeholder="artist statement or description")
     price
@@ -20,6 +20,6 @@ block content
       input(type="file", required=newComposition, name="picture", placeholder="Upload a good clear photograph.")
     input(type="submit")
   h3
-    a(href=artist.url)= artist.title
+    a(href=artist.url)= artist.name
   img(src=pictureUrl)
     
