@@ -200,34 +200,38 @@ function copyStringProperties(expectedProperties, from, to) { // copy only the l
 }
 
 // Put the image pointed to by the file object (produced by multer), in the right place and side-effect data
-// to reference it, and then cb(error). No-op if file is not supplied.
+// to reference it, and then cb(error). No-op (other than cb()) if file is not supplied.
 // writerFunction(error, data, data) is called, so that a store.update writerFunction has access to data even when an error.
+// It is our job to clean up unused files.
 function handlePictureUpload(file, data, writerFunction) {
     function cb(error) { writerFunction(error, data, data); }
+    function unlinker(path, finisher, existingError) {
+        fs.unlink(path, function (error) {
+            if (error) { console.log("No image at " + path); }
+            finisher(existingError); // without error
+        });
+    }
     if (!file) { return setImmediate(cb); }
     var extension = path.extname(file.originalname).toLowerCase();
     file.mimetype = file.mimetype.toLowerCase();
     if (extension === '.jpg') { extension = '.jpeg'; }
     if (file.mimetype === 'image/jpg') { file.mimetype = 'image/jpeg'; }
     if (file.mimetype !== 'image/' + extension.slice(1)) {
-        return writerFunction(badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'), data, data);
+        return unlinker(file.path, cb, badRequest('File extension "' + extension + '" does not match mimetype "' + file.mimetype + '".'));
     }
     fs.readFile(file.path, function (error, buffer) {
-        if (error) { return writerFunction(error, data, data); }
+        if (error) { return cb(error); }
         var idtag = crypto.createHash('sha256').update(buffer).digest('hex') + extension,
             target = mediaPath(idtag);
         function finish() {
             data.picture = idtag;
             store.rename(file.path, target, cb);
         }
-        if (data.picture) {
-            var old = mediaPath(data.picture);
-            fs.unlink(old, function (error) {
-                if (error) { console.log("No data at " + old); }
-                finish();
-            });
+        if (data.picture) { // Remove old picture file. If two people use the same picture from the Internet,
+            // and one changes, the other person will lose their picture!
+            unlinker(mediaPath(data.picture), finish);
         } else {
-            setImmediate(finish);
+            finish();
         }
     });
 }
@@ -357,6 +361,7 @@ function updateMember(req, res, next) {
     function update(error) {
         // Questionable design choice: Any errors at this point are system errors, not client errors, and so we don't
         // expect them to happen in normal operation, and we do not clean up media or nametags already in position.
+        // (Same issue with composition update.)
         if (error) { return finish(error); }
         handlePictureUpload(req.file, data, function (error) {
             if (error) { return finish(error); }
@@ -427,6 +432,18 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
     function update(idtag) {
         var docName = compositionIdtag2Docname(idtag);
         function transformer(data, writerFunction) {
+            function addCompositionToMember(oldMemberData, cb) {
+                propertyPush(oldMemberData, 'artistCompositions', idtag);
+                cb(null, oldMemberData);
+            }
+            function finish(error) {
+                if (error) { return writerFunction(error, data, data); }
+                if (!newComposition) { return writerFunction(null, data, data); }
+                // Update the artist with the new composition 
+                store.update(memberIdtag2Docname(member.idtag), undefined, addCompositionToMember, function (error) {
+                    writerFunction(error, data, data); // composition data, not the member data from store.update.
+                });
+            }
             if (!data && !newComposition) {
                 return writerFunction(unknown(member.username + " " + nametag), data, data);
             }
@@ -437,11 +454,11 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
             if (missingProperties(['medium', 'dimensions', 'price', 'title'], data, writerFunction)) { return; }
             if (newComposition) { data.created = Date.now(); }
             if (oldNametag === data.nametag) {
-                return handlePictureUpload(req.file, data, writerFunction);
+                return handlePictureUpload(req.file, data, finish);
             }
             ensureUniqueNametag(memberCompositionsCollectionname(member.idtag), nametag, idtag, oldNametag, data, 'Composition nametag', function (error) {
                 if (error) { return writerFunction(error, data, data); }
-                handlePictureUpload(req.file, data, writerFunction);
+                handlePictureUpload(req.file, data, finish);
             });
         }
         store.update(docName, {}, transformer, function (error, data) { // data comes from third arg to writerFunction
@@ -457,15 +474,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
         });
     }
     if (newComposition) {
-        var idtag = uuid.v4();
-        function addComposition(oldData, writerFunction) {
-            propertyPush(oldData, 'artistCompositions', idtag);
-            writerFunction(null, oldData);
-        }
-        store.update(memberIdtag2Docname(member.idtag), undefined, addComposition, function (error) {
-            if (error) { return next(error); }
-            update(idtag); // It's possible that this will fail, leaving a dangling pointer in member compositions. Fine...
-        });
+        update(uuid.v4());
     } else {
         resolveCompositionName(member.idtag, nametag, function (error, idtag) {
             // If it doesn't exist, it cannot be one of ours. No point in preserving form data.
