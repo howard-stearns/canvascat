@@ -149,38 +149,54 @@ function expandMember(member) { // side-effects member with more data used by te
     }
     return member;
 }
+function getMemberByIdtag(memberIdtag, cb) { // cb(error, memberData, memberIdtag)
+    store.get(memberIdtag2Docname(memberIdtag), function (error, member) {
+        cb(error, member, memberIdtag);
+    });
+}
 function getMember(username, cb) { // cb(error, memberData, memberIdtag)
     resolveUsername(username, function (error, idtag) {
         if (error) { return cb(error); }
-        store.get(memberIdtag2Docname(idtag), function (error, member) {
-            cb(error, member, idtag);
-        });
+        getMemberByIdtag(idtag, cb);
     });
 }
 function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(error, compositionIdtag)
     store.get(compositionNametag2Docname(memberIdtag, compositionNametag), cb);
 }
-function getMemberComposition(member, memberIdtag, compositionNametag, cb) { // cb(error, compositionData), with artist data resolved
-    resolveCompositionName(memberIdtag, compositionNametag, function (error, idtag) {
+function relatedCompositionUrl(member, memberIdtag, compositionIdtag, increment) {
+    var compositions = member.artistCompositions;
+    if (!compositions) { return; }
+    var index = compositionIdtag ? compositions.indexOf(compositionIdtag) : (compositions.length - 1),
+        nextIndex = index + (increment || 0),
+        next = compositions[nextIndex];
+    return next && path.join('/artscroll', memberIdtag, next);
+}
+function getMemberCompositionByIdtag(member, memberIdtag, compositionIdtag, cb) { // cb(error, expandedCompositionData, compositionIdtag), with artist data resolved
+    expandMember(member);
+    store.getWithModificationTime(compositionIdtag2Docname(compositionIdtag), function (error, composition, modtime) {
         if (error) { return cb(error); }
-        expandMember(member);
-        store.getWithModificationTime(compositionIdtag2Docname(idtag), function (error, composition, modtime) {
-            if (error) { return cb(error); }
-            composition.pictureUrl = mediaUrl(composition.picture);
-            composition.url = '/art/' + member.username + '/' + composition.nametag + '.html';
-            composition.updateUrl = '/update-art/' + member.username + '/' + composition.nametag + '.html';
-            composition.addCompositionUrl = member.addCompositionUrl;
-            composition.artist = member;
-            composition.modified = modtime.getTime();
-            if (composition.buyer) {
-                getMember(composition.buyer, function (error, buyer) {
-                    composition.buyer = buyer;
-                    cb(error, composition, idtag);
-                });
-            } else {
-                cb(null, composition, idtag);
-            }
-        });
+        composition.pictureUrl = mediaUrl(composition.picture);
+        composition.url = '/art/' + member.username + '/' + composition.nametag + '.html';
+        composition.updateUrl = '/update-art/' + member.username + '/' + composition.nametag + '.html';
+        composition.addCompositionUrl = member.addCompositionUrl;
+        composition.artist = member;
+        composition.modified = modtime.getTime();
+        composition.previousComposition = relatedCompositionUrl(member, memberIdtag, compositionIdtag, -1);
+        composition.nextComposition = relatedCompositionUrl(member, memberIdtag, compositionIdtag, 1);
+        if (composition.buyer) {
+            getMember(composition.buyer, function (error, buyer) {
+                composition.buyer = buyer;
+                cb(error, composition, compositionIdtag);
+            });
+        } else {
+            cb(null, composition, compositionIdtag);
+        }
+    });
+}
+function getMemberComposition(member, memberIdtag, compositionNametag, cb) {
+    resolveCompositionName(memberIdtag, compositionNametag, function (error, compositionIdtag) {
+        if (error) { return cb(error); }
+        getMemberCompositionByIdtag(member, memberIdtag, compositionIdtag, cb);
     });
 }
 function normalize(string) {
@@ -310,9 +326,10 @@ router.use('/media', express.static(media));
 // MEMBER PROFILE
 //////////////////
 router.get('/member/:username/profile.html', function (req, res, next) {
-    getMember(req.params.username, function (error, data) {
+    getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
-        res.render('member', expandMember(data));
+        member.previousComposition = relatedCompositionUrl(member, memberIdtag);
+        res.render('member', expandMember(member));
     });
 });
 router.get('/update-member/new/profile.html', rateLimit, function (req, res, next) {
@@ -394,10 +411,19 @@ router.post('/update-member/:username/profile.html', authenticate, authorizeForR
 // COMPOSITIONS
 //////////////////
 
-router.get('/art/:username/:compositionNametag.html', function (req, res, next) {
+router.get('/art/:username/:compositionNametag.html', function (req, res, next) { // canonical composition URL
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
         getMemberComposition(member, memberIdtag, req.params.compositionNametag, function (error, composition) {
+            if (error) { return next(error); }
+            res.render('composition', composition);
+        });
+    });
+});
+router.get('/artscroll/:memberIdtag/:compositionIdtag', function (req, res, next) { // Less lookup, when appearing in a scroll
+    getMemberByIdtag(req.params.memberIdtag, function (error, member) {
+        if (error) { return next(error); }
+        getMemberCompositionByIdtag(member, req.params.memberIdtag, req.params.compositionIdtag, function (error, composition) {
             if (error) { return next(error); }
             res.render('composition', composition);
         });
