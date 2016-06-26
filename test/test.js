@@ -359,8 +359,8 @@ describe('CanvasCat', function () {
                 assert.equal(composition.$('add-member a').attr('href'), newMember);
             });
         }
-        function confirmUpload(suiteName, route, user, imageFilename, auth) {
-            confirmGenericUpload(confirmComposition, suiteName, route, user, imageFilename, auth);
+        function confirmUpload(suiteName, route, user, imageFilename, auth, newData, uploader) {
+            confirmGenericUpload(confirmComposition, suiteName, route, user, imageFilename, auth, newData, uploader);
         }
         describe('creation', function () {
             describe('upload form', function () {
@@ -505,7 +505,8 @@ describe('CanvasCat', function () {
                 requires('medium', {title: 't', price: '100', dimensions: '1x2x3', medium: ''}, undefined, undefined, auth1);
                 requires('unique title', art2, 'Composition nametag ' + cleanNametag(art2.title) + ' is already in use.', 409, auth1);
             });
-            confirmUpload('composition update', base + art1.update, art1, 'test1.jpg', auth1);
+            confirmUpload('composition update', base + art1.update, art1, 'test1.jpg', auth1,
+                          {title: 'art 1', price: '200'}, function (data) { updateCompositionPaths(data, user1); });
         });
     });
 
