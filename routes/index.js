@@ -1,5 +1,5 @@
 "use strict";
-/*jslint node: true, nomen: true, vars: true*/
+/*jslint node: true, nomen: true, vars: true, plusplus: true*/
 
 /* The end purpose of this file is to define "routes" for the URL endpoints specific to this app.
    These are defined at the bottom with router.get, .post, and .use.
@@ -163,13 +163,50 @@ function getMember(username, cb) { // cb(error, memberData, memberIdtag)
 function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(error, compositionIdtag)
     store.get(compositionNametag2Docname(memberIdtag, compositionNametag), cb);
 }
-function relatedCompositionUrl(member, memberIdtag, compositionIdtag, increment) {
-    var compositions = member.artistCompositions;
+function relatedCompositionUrl(dataset, memberIdtag, compositionIdtag, increment) {
+    var compositions = dataset.artistCompositions;
     if (!compositions) { return; }
     var index = compositionIdtag ? compositions.indexOf(compositionIdtag) : (compositions.length - 1),
         nextIndex = index + (increment || 0),
         next = compositions[nextIndex];
-    return next && path.join('/artscroll', memberIdtag, next);
+    return next && path.join('/artscroll', memberIdtag || dataset.artists[nextIndex], next);
+}
+var hot; // = {artistCompositions: [], artists: []}; // in memory, for now
+var hotlistIdtag = docname(path.join(db, 'hotlist'), 'data');
+function getHot(cb) {
+    if (hot) { return setImmediate(function () { cb(null, hot); }); }
+    store.get(hotlistIdtag, function (error, data) {
+        if (store.doesNotExist(error)) {
+            data = {artistCompositions: [], artists: []};
+            error = null;
+        }
+        hot = data;
+        cb(error, data);
+    });
+}
+function addHot(memberIdtag, compositionIdtag, cb) {
+    getHot(function (error, hotlist) {
+        if (error) { return cb(error); }
+        hotlist.artists.push(memberIdtag);
+        hotlist.artistCompositions.push(compositionIdtag);
+        store.set(hotlistIdtag, hotlist, cb);
+    });
+}
+function removeHot(compositionIdtag, cb) {
+    getHot(function (error, hotlist) {
+        var nextArt = [], nextMembers = [], i, comp, length = hotlist.artists.length;
+        if (error) { return cb(error); }
+        for (i = 0; i < length; i++) {
+            comp = hotlist.artistCompositions[i];
+            if (comp !== compositionIdtag) {
+                nextArt.push(comp);
+                nextMembers.push(hotlist.artists);
+            }
+        }
+        hotlist.artistCompositions = nextArt;
+        hotlist.artists = nextMembers;
+        store.set(hotlistIdtag, hotlist, cb);
+    });
 }
 function getMemberCompositionByIdtag(member, memberIdtag, compositionIdtag, cb) { // cb(error, expandedCompositionData, compositionIdtag), with artist data resolved
     expandMember(member);
@@ -181,16 +218,21 @@ function getMemberCompositionByIdtag(member, memberIdtag, compositionIdtag, cb) 
         composition.addCompositionUrl = member.addCompositionUrl;
         composition.artist = member;
         composition.modified = modtime.getTime();
-        composition.previousComposition = relatedCompositionUrl(member, memberIdtag, compositionIdtag, -1);
-        composition.nextComposition = relatedCompositionUrl(member, memberIdtag, compositionIdtag, 1);
-        if (composition.buyer) {
-            getMember(composition.buyer, function (error, buyer) {
-                composition.buyer = buyer;
-                cb(error, composition, compositionIdtag);
-            });
-        } else {
-            cb(null, composition, compositionIdtag);
-        }
+        composition.previousFromArtist = relatedCompositionUrl(member, memberIdtag, compositionIdtag, -1);
+        composition.nextFromArtist = relatedCompositionUrl(member, memberIdtag, compositionIdtag, 1);
+        getHot(function (error, hot) {
+            if (error) { return cb(error); }
+            composition.previousHot = relatedCompositionUrl(hot, null, compositionIdtag, -1);
+            composition.nextHot = relatedCompositionUrl(hot, null, compositionIdtag, 1);
+            if (composition.buyer) {
+                getMember(composition.buyer, function (error, buyer) {
+                    composition.buyer = buyer;
+                    cb(error, composition, compositionIdtag);
+                });
+            } else {
+                cb(null, composition, compositionIdtag);
+            }
+        });
     });
 }
 function getMemberComposition(member, memberIdtag, compositionNametag, cb) {
@@ -328,7 +370,7 @@ router.use('/media', express.static(media));
 router.get('/member/:username/profile.html', function (req, res, next) {
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
-        member.previousComposition = relatedCompositionUrl(member, memberIdtag);
+        member.previousFromArtist = relatedCompositionUrl(member, memberIdtag);
         res.render('member', expandMember(member));
     });
 });
@@ -420,7 +462,8 @@ router.get('/art/:username/:compositionNametag.html', function (req, res, next) 
         });
     });
 });
-router.get('/artscroll/:memberIdtag/:compositionIdtag', function (req, res, next) { // Less lookup, when appearing in a scroll
+// Less lookup, when appearing in a scroll of art by a given artist.
+router.get('/artscroll/:memberIdtag/:compositionIdtag', function (req, res, next) {
     getMemberByIdtag(req.params.memberIdtag, function (error, member) {
         if (error) { return next(error); }
         getMemberCompositionByIdtag(member, req.params.memberIdtag, req.params.compositionIdtag, function (error, composition) {
@@ -467,7 +510,11 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
                 if (!newComposition) { return writerFunction(null, data, data); }
                 // Update the artist with the new composition 
                 store.update(memberIdtag2Docname(member.idtag), undefined, addCompositionToMember, function (error) {
-                    writerFunction(error, data, data); // composition data, not the member data from store.update.
+                    if (error) { return writerFunction(error, data, data); }
+                    // And the hotlist
+                    addHot(member.idtag, idtag, function (error) {
+                        writerFunction(error, data, data); // composition data, not the member data from store.update.
+                    });
                 });
             }
             if (!data && !newComposition) {
@@ -515,8 +562,11 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
 //////////////////
 
 router.get(/^\/(index.html)?$/, function (req, res, next) {
-    ignore(req, next);
-    res.render('index');
+    ignore(req);
+    getHot(function (error, hot) {
+        if (error) { return next(error); }
+        res.render('index', {latest: relatedCompositionUrl(hot)});
+    });
 });
 
 
@@ -551,10 +601,13 @@ router.delete('/art/:username/:nametag.html', deleteAuth, function (req, res, ne
         if (error) { return next(error); } // Cannot go further
         resolveCompositionName(memberIdtag, req.params.nametag, function (error, idtag) {
             if (error) { return next(error); }
-            // No need to destroy old nametags as they are part of the member collection, which we destroy separately.
-            // If we decide to allow deleting compositions without deleting the member, we would need to fix that,
-            // and also update the artist and buyer data.
-            store.destroy(compositionIdtag2Docname(idtag), makeOpHandler(res, next));
+            removeHot(idtag, function (error) {
+                if (error) { return next(error); }
+                // No need to destroy old nametags as they are part of the member collection, which we destroy separately.
+                // If we decide to allow deleting compositions without deleting the member, we would need to fix that,
+                // and also update the artist and buyer data.
+                store.destroy(compositionIdtag2Docname(idtag), makeOpHandler(res, next));
+            });
         });
     });
 });

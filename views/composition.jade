@@ -15,10 +15,15 @@ block content
         a(href=buyer.url)= buyer.name
     dimensions= dimensions
     category= category
-    if previousComposition
-      a(href=previousComposition) previous
-    if nextComposition
-      a(href=nextComposition) next
+    scroll
+      if previousFromArtist
+        a(href=previousFromArtist) previous from artist
+      if nextFromArtist
+        a(href=nextFromArtist) next from artist
+      if previousHot
+        a(href=previousHot) previous hot
+      if nextHot
+        a(href=nextHot) next hot
     update
       a(href=updateUrl) update
     add-art

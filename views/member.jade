@@ -8,8 +8,9 @@ block content
     description= description
     picture
       img(src=pictureUrl)
-    if previousComposition
-      a(href=previousComposition) last composition
+    scroll
+      if previousFromArtist
+        a(href=previousFromArtist) previous from artist
     update
       a(href=updateUrl) update
     add-art
