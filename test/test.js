@@ -89,7 +89,7 @@ describe('CanvasCat', function () {
     function updateMemberPaths(user) {
         var uname = cleanNametag(user.username);
         user.path = '/member/' + uname + '/profile.html';
-        user.update = user.path.replace('member', 'update-member');
+        user.update = '/update-member/me/profile.html';
         user.newArt = '/update-art/' + uname + '/new.html';
     }
     function updateCompositionPaths(art, member) {
@@ -275,13 +275,6 @@ describe('CanvasCat', function () {
                         done();
                     });
                 });
-                it('requires authorization for same user', function (done) {
-                    request({uri: base + user1.update, auth: auth2}, function (e, res) {
-                        assert.ifError(e);
-                        assert.equal(res.statusCode, 403, res.statusMessage);
-                        done();
-                    });
-                });
                 page(user1.update, function (data) {
                     var $;
                     function check(selector, propertyName, enforceNoValue) {
@@ -315,7 +308,6 @@ describe('CanvasCat', function () {
             }
             describe('server checks', function () {
                 requires('authentication', {}, false, 401);
-                requires('authorized user', {}, false, 403, auth2);
                 requires('name', {name: ''}, undefined, undefined, auth1);
                 requires('username', {name: 't', username: ''}, undefined, undefined, auth1);
                 requires('email', {name: 't', username: 'u', email: ''}, undefined, undefined, auth1);

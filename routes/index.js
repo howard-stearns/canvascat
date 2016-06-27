@@ -140,7 +140,7 @@ function resolveUsername(username, cb) { // cb(error, memberIdtag)
 function expandMember(member) { // side-effects member with more data used by templates
     member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
     member.url  = '/member/' + member.username + '/profile.html';
-    member.updateUrl = '/update-member/' + member.username + '/profile.html';
+    member.updateUrl = '/update-member/me/profile.html';
     member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
     if (!member.firstname && !member.lastname) {
         var split = member.name.split(' ');
@@ -374,12 +374,12 @@ router.get('/member/:username/profile.html', function (req, res, next) {
         res.render('member', expandMember(member));
     });
 });
+// A route can specify a chain of handlers to be applied, instead of just one.
 router.get('/update-member/new/profile.html', rateLimit, function (req, res, next) {
     ignore(req, next);
     res.render('updateMember', {newMember: true}); // tells template that different fields are requried
 });
-// A route can specify a chain of handlers to be applied, instead of just one.
-router.get('/update-member/:username/profile.html', authenticate, authorizeForRequest, function (req, res, next) {
+router.get('/update-member/me/profile.html', authenticate, function (req, res, next) {
     ignore(req, next);
     res.render('updateMember', req.user);
 });
@@ -446,7 +446,7 @@ function updateMember(req, res, next) {
 }
 // Two different routes because the authentication is different for a new profile vs changing an existing profile.
 router.post('/update-member/new/profile.html', rateLimit, singleFileUpload, updateMember);
-router.post('/update-member/:username/profile.html', authenticate, authorizeForRequest, singleFileUpload, updateMember);
+router.post('/update-member/me/profile.html', authenticate, singleFileUpload, updateMember);
 
 
 //////////////////
