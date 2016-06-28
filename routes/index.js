@@ -40,6 +40,10 @@ var passwordSecret = secret('PASSWORD_SECRET');
 function passwordHash(password, idtag) {
     return crypto.createHmac('sha256', passwordSecret).update(password).update(idtag).digest('hex');
 }
+function readablyEncode(nfkdString) { // Encode safely for a url, as readable as practical.
+    var string = (nfkdString || '').replace(/[\u0300-\u036f]/g, '').toLowerCase(); // remove diacriticals
+    return encodeURIComponent(string).replace(/%../g, '+');
+}
 
 // join and resolve are method in the path module, which build up pathnames in the file system.
 // join simply concatenates the arguments together with the file system separator in between.
@@ -55,23 +59,29 @@ function memberCollectionname(idtag) { return docname(members, idtag); }
 function memberCompositionsCollectionname(idtag) {
     return path.join(members, idtag, 'compositionNametags');
 }
+// Each member and composition each has an idtag that never changes.
+// We use the idtag for internal references (e.g., member.artistComposition), and within scroll urls.
+// These functions map the idtag to the appropriate document within our persistent store (e.g., file system).
+// 
 function memberIdtag2Docname(idtag) {
     return docname(memberCollectionname(idtag), 'profile.json');
-}
-function compositionNametag2Docname(userIdtag, nametag) {
-    return docname(memberCompositionsCollectionname(userIdtag), nametag);
-}
-function memberNametag2Docname(nametag) {
-    return docname(memberNametags, nametag);
 }
 function compositionIdtag2Docname(idtag) {
     return docname(compositions, idtag + '.json');
 }
-function readablyEncode(nfkdString) { // Encode safely for a url, as readable as practical.
-    var string = (nfkdString || '').replace(/[\u0300-\u036f]/g, '').toLowerCase(); // remove diacriticals
-    return encodeURIComponent(string).replace(/%../g, '+');
+// However, we arrange for users and search engines to see a more mnemonic canonical URL using nametags.
+// Each member has a globally unique username that maps to a member idtag,
+// and each composition has a nametag that is unique among that artist's compositions.
+// E.g., /member/username/profile.html, and /art/username/compositionNametag.html
+// Each nametag maps to a document whose sole content is the idtag to use.
+function memberNametag2Docname(nametag) {
+    return docname(memberNametags, nametag);
 }
-function mediaUrl(idtag) { // The file extension is already part of the idtag.
+function compositionNametag2Docname(userIdtag, nametag) {
+    return docname(memberCompositionsCollectionname(userIdtag), nametag);
+}
+// The file extension is already part of the idtag.
+function mediaUrl(idtag) {
     // Even though the results would be the same if we used path.join, here we are returning a
     // (relative) URL, so join is not really expressing what we want. Our URLs always use slashes
     // as separators.
