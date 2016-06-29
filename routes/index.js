@@ -22,15 +22,7 @@ require('../polyfills');
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// UTILITIES
 /////////////////////////////////////////////////////////////////////////////////////////////
-var DEFAULT_PARALLEL_LIMIT = 50;
 var ignore = _.noop; // Does nothing, and used to document parameters that are deliberately not used.
-
-function propertyPush(object, property, newElement, optionalCheck) { // object[property].push(newElement) even if undefined
-    var array = object[property] || [];
-    if (optionalCheck && newElement && array.includes(newElement)) { return; }
-    array.push(newElement);
-    object[property] = array;
-}
 
 function secret(key) {   // Grab a secret from the shell environment, or report that it wasn't set.
     if (process.env[key]) { return process.env[key]; }
@@ -80,6 +72,12 @@ function memberNametag2Docname(nametag) {
 function compositionNametag2Docname(userIdtag, nametag) {
     return docname(memberCompositionsCollectionname(userIdtag), nametag);
 }
+function ensureMemberCollections(idtag, cb) { // member collection also contains a collection of composition nametags
+    store.ensureCollection(memberCollectionname(idtag), function (error) {
+        if (error) { return cb(error); }
+        store.ensureCollection(memberCompositionsCollectionname(idtag), cb);
+    });
+}
 // The file extension is already part of the idtag.
 function mediaUrl(idtag) {
     // Even though the results would be the same if we used path.join, here we are returning a
@@ -91,8 +89,8 @@ var defaultMemberPictureUrl = mediaUrl('default-member.gif');
 // An object that has utilities to parse  multi-part file uploads and place them in uploads directory.
 var upload = multer({dest: path.resolve(__dirname, '..', '..', 'uploads')});
 
-// errors
-function makeError(message, code) {
+// Errors
+function makeError(message, code) { // optional code is stored in the error for use as the HTTP response code.
     var error = new Error(message);
     if (code) { error.status = code; }
     return error;
@@ -108,12 +106,18 @@ function badRequest(message) { return makeError(message, 400); }
 /////////////////////////////////////////////////////////////////////////////////////////////
 /// APP BEHAVIOR
 /////////////////////////////////////////////////////////////////////////////////////////////
-function ensureMemberCollections(idtag, cb) {
-    store.ensureCollection(memberCollectionname(idtag), function (error) {
-        if (error) { return cb(error); }
-        store.ensureCollection(memberCompositionsCollectionname(idtag), cb);
-    });
+// There are two ways to work with objects that have properties defined:
+// 1. Always define the properties, so that uses of the object can just assume that it is there.
+// 2. Add the property only when it is needed - i.e., when it becomes non-empty or non-default.
+// We do the latter, so that we can flexibly add things later.
+// FIXME: make member objects and composition objects with getters that provide what's needed
+function propertyPush(object, property, newElement, optionalCheck) { // object[property].push(newElement) even if undefined
+    var array = object[property] || [];
+    if (optionalCheck && newElement && array.includes(newElement)) { return; }
+    array.push(newElement);
+    object[property] = array;
 }
+
 var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
 var MAX_NAME_CHANGES = 50;
 // Ensure that collection/nametag points to idtag and call cb(error),
@@ -136,12 +140,11 @@ function ensureUniqueNametag(collection, nametag, idtag, oldNametag, data, label
         }
         data.oldNametags[now] = oldNametag;
     }
-    store.get(document, function (error, existing) {
-        if (existing === idtag) { return cb(); }
-        if (existing) { error = conflict(label + " " + nametag + " is already in use."); }
-        if (error && !store.doesNotExist(error)) { return cb(error); }
-        store.set(document, idtag, cb);
-    });
+    store.update(document, null, function (existing, writerFunction) { // update, so that overlapping activity is atomic
+        if (existing === idtag) { return writerFunction(); }
+        if (existing) { return writerFunction(conflict(label + " " + nametag + " is already in use.")); }
+        writerFunction(null, idtag);
+    }, cb);
 }
 
 function resolveUsername(username, cb) { // cb(error, memberIdtag)
