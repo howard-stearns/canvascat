@@ -118,6 +118,19 @@ function propertyPush(object, property, newElement, optionalCheck) { // object[p
     object[property] = array;
 }
 
+// Scores are exponential decays, represented internally as {N0: aNumberAtTime0, T0: theTimestampAtTime0}
+var SCORE_NEGATIVE_INVERSE_HALF_LIFE_MILLISECONDS = -1 / (30 * 24 * 60 * 60 * 1000); // -1 / 30 day-half-life
+function getCurrentScore(object, optionalNow) { // answer current value of an object's score, allowing for time decay
+    var score = object.score;
+    if (!score) { return 0; }
+    var now = optionalNow || Date.now();
+    return score.N0 * Math.pow(2, (now - score.T0) * SCORE_NEGATIVE_INVERSE_HALF_LIFE_MILLISECONDS);
+}
+function addScore(object, increment) { // Update object's score by increment
+    var now = Date.now();
+    object.score = {N0: getCurrentScore(object, now) + increment, T0: now};
+}
+
 var MINIMUM_MILLISECONDS_BETWEEN_NAME_CHANGES = 60 * 60 * 1000;
 var MAX_NAME_CHANGES = 50;
 // Ensure that collection/nametag points to idtag and call cb(error),
@@ -177,14 +190,14 @@ function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(erro
     store.get(compositionNametag2Docname(memberIdtag, compositionNametag), cb);
 }
 function relatedCompositionUrl(dataset, memberIdtag, compositionIdtag, increment) {
-    var compositions = dataset.artistCompositions;
+    var compositions = dataset.artistCompositions; // FIXME: long list
     if (!compositions) { return; }
     var index = compositionIdtag ? compositions.indexOf(compositionIdtag) : (compositions.length - 1),
         nextIndex = index + (increment || 0),
         next = compositions[nextIndex];
     return next && path.join('/artscroll', memberIdtag || dataset.artists[nextIndex], next);
 }
-var hot; // = {artistCompositions: [], artists: []}; // in memory, for now
+var hot; // FIXME: long list
 var hotlistIdtag = docname(path.join(db, 'hotlist'), 'data');
 function getHot(cb) {
     if (hot) { return setImmediate(function () { cb(null, hot); }); }
@@ -341,12 +354,12 @@ passport.use(new BasicStrategy(function (username, password, done) {
 // This route is is used in the route to determine whether the given authenticated user is authorized for the next step in the route.
 var authenticate = passport.authenticate('basic', {session: false});
 function authorizeForRequest(req, res, next) {
-    var i, user = req.user, username = req.params.username;
+    var key, user = req.user, username = req.params.username;
     ignore(res);
     if (user.username === username) { return next(); }
     if (user.oldNametags) {
-        for (i in user.oldNametags) {
-            if (user.oldNametags[i] === username) { return next(); }
+        for (key in user.oldNametags) {
+            if (user.oldNametags[key] === username) { return next(); }
         }
     }
     return next(forbidden("Unauthorized " + req.user.username + " for " + req.params.username));
@@ -384,7 +397,40 @@ router.get('/member/:username/profile.html', function (req, res, next) {
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
         member.previousFromArtist = relatedCompositionUrl(member, memberIdtag);
+        if (req.user && req.user.favoredMembers) { // FIXME: long list
+            member.favored = _.contains(req.user.favoredMembers, memberIdtag);
+        }
         res.render('member', expandMember(member));
+    });
+});
+router.post('/member/:username/profile.html', authenticate, function (req, res, next) {
+    // Currently only hanldes "favor", whereas general update is a separate form obtained from /update-member/me/profile.html.
+    // In the favor case, the authenticated user and the favored user are (likely) different, and both are modified.
+    // We ensure that you can like me and vice versa at the same time, without deadlock.
+    if (!req.body.favor) { return next(badRequest("No recognized action")); }
+    resolveUsername(req.params.username, function (error, favoredIdtag) { // Make sure the favored member exists. (usernames never expire)
+        if (error) { return next(error); }
+        // Even thought we already have the favorer through authentication, we want to test and store the action as a single atomic
+        // action, so that overlapping parallel likes only happen once. (authenticate() doesn't lock the user record.)
+        store.update(memberIdtag2Docname(req.user.idtag), null, function (favorer, writeFavorer) {
+            if (!favorer) { return writeFavorer(unknown(req.user.username)); } // Can't really happen, because of auth.
+            var favoredMembers = favorer.favoredMembers; // FIXME: long list
+            if (!favoredMembers) { favorer.favoredMembers = favoredMembers = []; }
+            if (_.contains(favoredMembers, favoredIdtag)) { return writeFavorer(tooMany(req.params.username + " is already favored.")); }
+            favoredMembers.push(favoredIdtag);
+            // At this point, the only thing that go wrong is a system error.
+            writeFavorer(null, favorer);
+        }, function (error) {
+            if (error) { return next(error); }
+            store.update(memberIdtag2Docname(favoredIdtag), null, function (favored, writeFavored) {
+                if (!favored) { return writeFavored(unknown(req.params.username)); } // Can't really happen, becuase of resolveUsername
+                addScore(favored, 5); // favoring a member is worth 5
+                writeFavored(null, favored);
+            }, function (error) {
+                if (error) { return next(error); }
+                res.send('ok');
+            });
+        });
     });
 });
 // A route can specify a chain of handlers to be applied, instead of just one.
@@ -438,6 +484,9 @@ function updateMember(req, res, next) {
         handlePictureUpload(req.file, data, function (error) {
             if (error) { return finish(error); }
             delete data.idtag;  // idtag is in the docname. We don't keep it inside.
+            // We're not worried about making the read and write atomic (with update instead of set), because
+            // people are not allowed to share accounts. If they do, or if a user has overlapping changes from multiple devices,
+            // the last one wins.
             store.set(memberIdtag2Docname(idtag), data, finish);
         });
     }
@@ -500,7 +549,7 @@ router.get('/update-art/:username/:compositionNametag.html', authenticate, autho
     var nametag = req.params.compositionNametag;
     getMemberComposition(member, member.idtag, nametag, function (error, data, idtag) {
         if (error) { return next(error); }
-        if (!member.artistCompositions.includes(idtag)) {
+        if (!member.artistCompositions.includes(idtag)) { // FIXME: long list
             return next(forbiddenComposition(nametag));
         }
         res.render('updateComposition', data);
@@ -515,7 +564,7 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
         var docName = compositionIdtag2Docname(idtag);
         function transformer(data, writerFunction) {
             function addCompositionToMember(oldMemberData, cb) {
-                propertyPush(oldMemberData, 'artistCompositions', idtag);
+                propertyPush(oldMemberData, 'artistCompositions', idtag); // FIXME: long list
                 cb(null, oldMemberData);
             }
             function finish(error) {

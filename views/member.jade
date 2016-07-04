@@ -2,12 +2,14 @@ extends item
 
 block content
   profile
-    name= name
-    website
-      a(href=website)= website
-    description= description
-    picture
-      img(src=pictureUrl)
+    form(method="post")
+      name= name
+      website
+        a(href=website)= website
+      description= description
+      picture
+        img(src=pictureUrl)
+      button(type="submit", name="favor", value="true", disabled=!favored) like
     scroll
       if previousFromArtist
         a(href=previousFromArtist) previous from artist
