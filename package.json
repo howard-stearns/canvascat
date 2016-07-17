@@ -12,13 +12,14 @@
         "url": "https://github.com/howard-stearns/canvascat.git"
     },
     "author": "Howard Stearns",
-    "license": "Apache-2.0",
+    "license": "CC-BY-NC-ND-4.0",
     "bugs": {
         "url": "https://github.com/howard-stearns/canvascat/issues"
     },
     "homepage": "https://github.com/howard-stearns/canvascat",
     "files": [
         "README.md",
+        "LICENSE",
         "app.js",
         "views/error.jade",
         "views/layout.jade",
