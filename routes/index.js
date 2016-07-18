@@ -335,9 +335,9 @@ passport.use(new BasicStrategy(function (username, password, done) {
     // When passport does not find a serialized user in the session cookie (if configured to use sessions),
     // it attempts to obtain the credentials based on the strategy.
     // If there are credentials, it invokes this callback to produce an authenticated user from the given credentials.
-    // Improper credentials should a falsey user, not an error (which would indicate a machinery failure).
+    // Improper credentials should produce a falsey user, not an error (which would indicate a machinery failure).
     // (Confusingly, the passport documentation calls this verifying, but by that they mean verifying the credentials
-    // to produce an authenticated user. It does not verify that the user is authorized for the request, which isn't given here.)
+    // to produce an authenticated user. It does not verify that the user is authorized for the request, which isn't done here.)
     getMember(username, function (error, member, idtag) {
         var missing = store.doesNotExist(error);
         if (member) { member.idtag = idtag; }
@@ -353,6 +353,11 @@ passport.use(new BasicStrategy(function (username, password, done) {
 // Generic route handler functions that we can use in a specific chain (instead of being applied all the time). See .post() calls, below.
 // This route is is used in the route to determine whether the given authenticated user is authorized for the next step in the route.
 var authenticate = passport.authenticate('basic', {session: false});
+// This route respects login if the credentials were provided in the request, but does not fail/401 if not provided.
+function allowAuthenticate(req, res, next) {
+    if (!req.headers.authorization) { return next(); }
+    authenticate(req, res, next);
+}
 function authorizeForRequest(req, res, next) {
     var key, user = req.user, username = req.params.username;
     ignore(res);
@@ -393,13 +398,11 @@ router.use('/media', express.static(media));
 //////////////////
 // MEMBER PROFILE
 //////////////////
-router.get('/member/:username/profile.html', function (req, res, next) {
+router.get('/member/:username/profile.html', allowAuthenticate, function (req, res, next) {
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
         member.previousFromArtist = relatedCompositionUrl(member, memberIdtag);
-        if (req.user && req.user.favoredMembers) { // FIXME: long list
-            member.favored = _.contains(req.user.favoredMembers, memberIdtag);
-        }
+        member.favorable = !req.user || !_.contains((req.user.favoredMembers || []), memberIdtag); // req.user comes from allowAuthenticate
         res.render('member', expandMember(member));
     });
 });

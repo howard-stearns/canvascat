@@ -43,7 +43,7 @@ describe('CanvasCat', function () {
             });
         });
         if (optionalTests) { optionalTests(data); }
-        it('multiple get ' + path, function (done) {
+        it.skip('multiple get ' + path, function (done) {
             // This isn't a load test. It's a smoke test that path can be called a lot on the same machine without something going seriously wrong.
             var start = Date.now();
             var n = 100;
@@ -114,10 +114,11 @@ describe('CanvasCat', function () {
     updateMemberPaths(user2);
     updateCompositionPaths(art1, user1);
     updateCompositionPaths(art2, user1);
-    function uploadRequires(path, property, submittedData, optionalMessage, optionalCode, auth) {
-        it('requires ' + property, function (done) {
+    function uploadRequires(path, property, submittedData, optionalMessage, optionalCode, auth, poster) {
+        it('requires ' + property + ' => ' + (optionalCode || 400), function (done) {
             delete submittedData.$; // in case there's any cruft left
-            var data = {uri: base + path, method: 'POST', formData: submittedData};
+            var data = {uri: base + path, method: 'POST'};
+            data[poster || 'formData'] = submittedData; // formData=>multipart/form-data, form=>application/x-www-form-urlencode
             if (auth) { data.auth = auth; }
             request(data, function (e, res, body) {
                 assert.ifError(e);
@@ -164,7 +165,7 @@ describe('CanvasCat', function () {
     }
 
     describe('member', function () {
-        function confirmMember(member) {
+        function confirmMember(member, favorDisabled) {
             it('has correct name', function () {
                 assert.equal(member.$('name').text(), member.name);
             });
@@ -188,6 +189,9 @@ describe('CanvasCat', function () {
                         done();
                     });
                 }
+            });
+            it('has ' + (favorDisabled ? 'disabled' : 'enabled') + ' favor button', function () {
+                assert.equal(!!member.$('button[name="favor"]').attr('disabled'), !!favorDisabled);
             });
             it('has correct update', function () {
                 assert.equal(member.$('update a').attr('href'), member.update);
@@ -315,6 +319,22 @@ describe('CanvasCat', function () {
                 requires('unique username', badUser1, 'Username ' + cleanNametag(user2.username) + ' is already in use.', 409, auth1);
             });
             confirmUpload('member update', base + user1.update, user1, 'test1.jpg', auth1, {username: 'test user 1'}, updateMemberPaths);
+        });
+        describe('favor', function () {
+            function requires(submittedData, optionalMessage, optionalCode, auth) {
+                uploadRequires(user1.path, 'favor', submittedData, optionalMessage, optionalCode, auth, 'form'); // x-www-form-urlencoded
+            }
+            requires({favor: 'true'}, false, 401); // requires auth
+            requires({}, false, 400, auth1); // requires 'favor' input in the data
+            requires({favor: 'true'}, false, 200, auth1); // first one works
+            requires({favor: 'true'}, false, 429, auth1); // second is 'too many requests'
+            page(user1.path, function (data) {
+                it('favored member', function (done) {
+                    user1.$ = cheerio.load(data.body);
+                    done();
+                });
+                confirmMember(user1, true); // now favor button is disabled
+            }, auth1); // if we supply the credentials of the person who favored
         });
     });
 
