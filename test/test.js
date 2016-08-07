@@ -1,6 +1,6 @@
 "use strict";
 /*jslint node: true, nomen: true, vars: true */
-var fs = require('fs-extra');
+var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 var assert = require('assert');
@@ -43,7 +43,7 @@ describe('CanvasCat', function () {
             });
         });
         if (optionalTests) { optionalTests(data); }
-        it.skip('multiple get ' + path, function (done) {
+        it('multiple get ' + path, function (done) {
             // This isn't a load test. It's a smoke test that path can be called a lot on the same machine without something going seriously wrong.
             var start = Date.now();
             var n = 100;
