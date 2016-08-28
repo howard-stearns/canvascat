@@ -4,6 +4,7 @@ html
     title= name + ' | CanvasCat'
     meta(property="og:title", content=name)
     link(rel='stylesheet', href='/stylesheets/style.css')
+    script(src="/javascripts/utils.js")
     // Various media are owned by their respective authors.
     meta(name="copyright", content="CanvasCat (c) 2016")
     meta(property="og:site_name", content="CanvasCat")
@@ -13,7 +14,7 @@ html
     if artist
         meta(property="og:type", content="article")
         meta(property="og:description", content=description)
-        meta(property="article:author", content=artist.url)
+        // Facebook rejects author profiles that are not Facebook profiles: meta(property="article:author", content=artist.url)
         meta(property="article:section", content=artist.username)
         for tag in category || []
             meta(property="article:tag", content=tag)
@@ -27,3 +28,10 @@ html
         meta(property="profile:username", content=username)
   body
     block content
+    visitor
+      if visitor
+        a.home(href=visitor.url)= visitor.username
+        a(href='/', onclick="logout('/login.html')") logout
+      else
+        a(href="/login.html") login
+        a.add-member(href="/update-member/new/profile.html") signup

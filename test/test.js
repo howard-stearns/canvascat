@@ -199,9 +199,6 @@ describe('CanvasCat', function () {
             it('has correct add-art', function () {
                 assert.equal(member.$('add-art a').attr('href'), member.newArt);
             });
-            it('has correct add-member', function () {
-                assert.equal(member.$('add-member a').attr('href'), newMember);
-            });
         }
         function confirmUpload(suiteName, route, user, imageFilename, auth, newData, updater) {
             confirmGenericUpload(confirmMember, suiteName, route, user, imageFilename, auth, newData, updater);
@@ -366,9 +363,6 @@ describe('CanvasCat', function () {
             });
             it('has correct add-art', function () {
                 assert.equal(composition.$('add-art a').attr('href'), composition.newArt);
-            });
-            it('has correct add-composition', function () {
-                assert.equal(composition.$('add-member a').attr('href'), newMember);
             });
         }
         function confirmUpload(suiteName, route, user, imageFilename, auth, newData, uploader) {

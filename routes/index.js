@@ -85,7 +85,7 @@ function mediaUrl(idtag) {
     // as separators.
     return '/media/' + idtag;
 }
-var defaultMemberPictureUrl = mediaUrl('default-member.gif');
+var defaultMemberPictureUrl = '/images/default-member.png';
 // An object that has utilities to parse  multi-part file uploads and place them in uploads directory.
 var upload = multer({dest: path.resolve(__dirname, '..', '..', 'uploads')});
 
@@ -165,7 +165,6 @@ function resolveUsername(username, cb) { // cb(error, memberIdtag)
 }
 function expandMember(member) { // side-effects member with more data used by templates
     member.pictureUrl = member.picture ? mediaUrl(member.picture) : defaultMemberPictureUrl;
-    member.url  = '/member/' + member.username + '/profile.html';
     member.updateUrl = '/update-member/me/profile.html';
     member.addCompositionUrl = '/update-art/' + member.username + '/new.html';
     if (!member.firstname && !member.lastname) {
@@ -177,6 +176,7 @@ function expandMember(member) { // side-effects member with more data used by te
 }
 function getMemberByIdtag(memberIdtag, cb) { // cb(error, memberData, memberIdtag)
     store.get(memberIdtag2Docname(memberIdtag), function (error, member) {
+        if (member) { member.url  = '/member/' + member.username + '/profile.html'; }
         cb(error, member, memberIdtag);
     });
 }
@@ -189,6 +189,10 @@ function getMember(username, cb) { // cb(error, memberData, memberIdtag)
 function resolveCompositionName(memberIdtag, compositionNametag, cb) { //cb(error, compositionIdtag)
     store.get(compositionNametag2Docname(memberIdtag, compositionNametag), cb);
 }
+// For now, a hotlist dataset consists of an object with properties artistCompositions and possibly artists.
+// Each is a list of idtags. Here we find the designated compositionIdtag in the list (or the last one in the list),
+// and answer a url to the art that is relative to it by increment (e.g., one before, after, or itself), or falsey if none.
+// Requires either truthy memberIdtag or dataset.artists.
 function relatedCompositionUrl(dataset, memberIdtag, compositionIdtag, increment) {
     var compositions = dataset.artistCompositions; // FIXME: long list
     if (!compositions) { return; }
@@ -200,6 +204,8 @@ function relatedCompositionUrl(dataset, memberIdtag, compositionIdtag, increment
 var hot; // FIXME: long list
 var hotlistIdtag = docname(path.join(db, 'hotlist'), 'data');
 function getHot(cb) {
+    // For now: answer the in-memory hotlist, if any.
+    // Otherwise get (and initialize memory) from store, or to initialized empty data if nothing in store.
     if (hot) { return setImmediate(function () { cb(null, hot); }); }
     store.get(hotlistIdtag, function (error, data) {
         if (store.doesNotExist(error)) {
@@ -210,7 +216,7 @@ function getHot(cb) {
         cb(error, data);
     });
 }
-function addHot(memberIdtag, compositionIdtag, cb) {
+function addHot(memberIdtag, compositionIdtag, cb) { // adds the pair to hotlist and saves
     getHot(function (error, hotlist) {
         if (error) { return cb(error); }
         hotlist.artists.push(memberIdtag);
@@ -218,19 +224,13 @@ function addHot(memberIdtag, compositionIdtag, cb) {
         store.set(hotlistIdtag, hotlist, cb);
     });
 }
-function removeHot(compositionIdtag, cb) {
+function removeHot(compositionIdtag, cb) { // removes the pair matching compositionIdtag, and save
+    // WARNING: Requires compsoitionIdtag appear exactly once in the hotlist
     getHot(function (error, hotlist) {
-        var nextArt = [], nextMembers = [], i, comp, length = hotlist.artists.length;
         if (error) { return cb(error); }
-        for (i = 0; i < length; i++) {
-            comp = hotlist.artistCompositions[i];
-            if (comp !== compositionIdtag) {
-                nextArt.push(comp);
-                nextMembers.push(hotlist.artists);
-            }
-        }
-        hotlist.artistCompositions = nextArt;
-        hotlist.artists = nextMembers;
+        var index = hotlist.artistCompositions.indexOf(compositionIdtag);
+        hotlist.artistCompositions.splice(index, 1);
+        hotlist.artists.splice(index, 1);
         store.set(hotlistIdtag, hotlist, cb);
     });
 }
@@ -398,13 +398,20 @@ router.use('/media', express.static(media));
 //////////////////
 // MEMBER PROFILE
 //////////////////
+function showMember(member, memberIdtag, visitor, res) {
+    member.previousFromArtist = relatedCompositionUrl(member, memberIdtag);
+    member.favorable = !visitor || !_.contains((visitor.favoredMembers || []), memberIdtag);
+    member.visitor = visitor;
+    res.render('member', expandMember(member));
+}
 router.get('/member/:username/profile.html', allowAuthenticate, function (req, res, next) {
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
-        member.previousFromArtist = relatedCompositionUrl(member, memberIdtag);
-        member.favorable = !req.user || !_.contains((req.user.favoredMembers || []), memberIdtag); // req.user comes from allowAuthenticate
-        res.render('member', expandMember(member));
+        showMember(member, memberIdtag,  req.user, res);  // req.user comes from allowAuthenticate
     });
+});
+router.get('/login.html', authenticate, function (req, res) { // force a login, and show that user's profile
+    showMember(req.user, req.user.idtag, req.user, res);
 });
 router.post('/member/:username/profile.html', authenticate, function (req, res, next) {
     // Currently only hanldes "favor", whereas general update is a separate form obtained from /update-member/me/profile.html.
@@ -518,21 +525,23 @@ router.post('/update-member/me/profile.html', authenticate, singleFileUpload, up
 // COMPOSITIONS
 //////////////////
 
-router.get('/art/:username/:compositionNametag.html', function (req, res, next) { // canonical composition URL
+router.get('/art/:username/:compositionNametag.html', allowAuthenticate, function (req, res, next) { // canonical composition URL
     getMember(req.params.username, function (error, member, memberIdtag) {
         if (error) { return next(error); }
         getMemberComposition(member, memberIdtag, req.params.compositionNametag, function (error, composition) {
             if (error) { return next(error); }
+            composition.visitor = req.user;
             res.render('composition', composition);
         });
     });
 });
 // Less lookup, when appearing in a scroll of art by a given artist.
-router.get('/artscroll/:memberIdtag/:compositionIdtag', function (req, res, next) {
+router.get('/artscroll/:memberIdtag/:compositionIdtag', allowAuthenticate, function (req, res, next) {
     getMemberByIdtag(req.params.memberIdtag, function (error, member) {
         if (error) { return next(error); }
         getMemberCompositionByIdtag(member, req.params.memberIdtag, req.params.compositionIdtag, function (error, composition) {
             if (error) { return next(error); }
+            composition.visitor = req.user;
             res.render('composition', composition);
         });
     });

@@ -22,7 +22,7 @@ artist, website {
     font-size: 1.17em;
     font-weight: bold;
 }
-discription, medium, price, buyer, dimensions, category, update, add-art, add-member, email, username, password, error {
+discription, medium, price, buyer, dimensions, category, update, add-art, .add-member, .home, email, username, password, error, visitor, [href="/logout"], [href="/login"] {
     display: block;
 }
 scroll a {
