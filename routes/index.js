@@ -636,10 +636,14 @@ router.post('/update-art/:username/:compositionNametag.html', authenticate, auth
 //////////////////
 
 router.get(/^\/(index.html)?$/, function (req, res, next) {
+    ignore(req, next);
+    res.render('index');
+});
+router.get(/canvascat.html/, function (req, res, next) {    
     ignore(req);
     getHot(function (error, hot) {
         if (error) { return next(error); }
-        res.render('index', {latest: relatedCompositionUrl(hot)});
+        res.render('todo', {latest: relatedCompositionUrl(hot)});
     });
 });
 
